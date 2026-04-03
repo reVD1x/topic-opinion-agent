@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from dataclasses import field
 
 from dotenv import load_dotenv
 
@@ -43,6 +44,24 @@ class Settings:
     llm_max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
     llm_retry_base_seconds: float = float(os.getenv("LLM_RETRY_BASE_SECONDS", "1.0"))
     llm_retry_max_seconds: float = float(os.getenv("LLM_RETRY_MAX_SECONDS", "8.0"))
+
+    mindspider_enabled: bool = os.getenv("MINDSPIDER_ENABLED", "true").lower() == "true"
+    mindspider_module_path: str = os.getenv("MINDSPIDER_MODULE_PATH", "MindSpider")
+    mindspider_api_key: str = os.getenv("MINDSPIDER_API_KEY", "")
+    mindspider_base_url: str = os.getenv("MINDSPIDER_BASE_URL", "https://api.deepseek.com")
+    mindspider_model_name: str = os.getenv("MINDSPIDER_MODEL_NAME", "deepseek-chat")
+    mindspider_crawler_loop: bool = os.getenv("MINDSPIDER_CRAWLER_LOOP", "true").lower() == "true"
+    mindspider_run_on_start: bool = os.getenv("MINDSPIDER_RUN_ON_START", "true").lower() == "true"
+    mindspider_crawler_interval_seconds: int = int(os.getenv("MINDSPIDER_CRAWLER_INTERVAL_SECONDS", "86400"))
+    mindspider_keywords_count: int = int(os.getenv("MINDSPIDER_KEYWORDS_COUNT", "100"))
+    mindspider_max_keywords: int = int(os.getenv("MINDSPIDER_MAX_KEYWORDS", "50"))
+    mindspider_max_notes: int = int(os.getenv("MINDSPIDER_MAX_NOTES", "50"))
+    mindspider_test_mode: bool = os.getenv("MINDSPIDER_TEST_MODE", "false").lower() == "true"
+    mindspider_platforms: list[str] = field(
+        default_factory=lambda: [
+            p.strip() for p in os.getenv("MINDSPIDER_PLATFORMS", "").split(",") if p.strip()
+        ]
+    )
 
 
 settings = Settings()

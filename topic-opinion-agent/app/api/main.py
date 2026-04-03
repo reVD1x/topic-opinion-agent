@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from datetime import date
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 
+from app.data.mindspider_adapter import MindSpiderAdapter
 from app.schemas.task import TopicAnalysisRequest
 from app.storage.task_repo import task_repo
 from app.workflow.pipeline import TopicAnalysisPipeline
 
 app = FastAPI(title="Topic Opinion Agent", version="0.1.0")
+mindspider = MindSpiderAdapter()
 
 
 @app.get("/health")
@@ -55,3 +58,11 @@ def get_report(task_id: str):
     if not report:
         raise HTTPException(status_code=404, detail="report not found")
     return report
+
+
+@app.post("/mindspider/run")
+def run_mindspider_workflow(run_date: date | None = None) -> dict[str, str]:
+    ok, message = mindspider.run_complete_workflow(target_date=run_date)
+    if not ok:
+        raise HTTPException(status_code=500, detail=message)
+    return {"status": "ok", "message": message}

@@ -14,13 +14,15 @@ Single-topic opinion analysis service for interview/demo scenarios.
   - optional LLM-only forecast
 - Produces a traceable report with `evidence_ids`
 - Exposes APIs via FastAPI
+- Includes an independent full MindSpider module in this project
+- Uses MindSpider through adapter calls to keep modules decoupled
 
 ## Quick Start
 
 1. Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 2. Create env file:
@@ -32,13 +34,19 @@ cp .env.example .env
 3. Start service:
 
 ```bash
-uvicorn app.api.main:app --reload
+uv run uvicorn app.api.main:app --reload
 ```
 
 或启动中文 Streamlit 页面（单一话题分析/预测）：
 
 ```bash
-streamlit run app/ui/streamlit_app.py
+uv run streamlit run app/ui/streamlit_app.py
+```
+
+启动 MindSpider crawler（调用内置完整 MindSpider 模块）：
+
+```bash
+uv run python app/mindspider_crawler.py
 ```
 
 4. Open docs:
@@ -51,6 +59,35 @@ streamlit run app/ui/streamlit_app.py
 - `POST /analysis/topic`
 - `GET /analysis/{task_id}`
 - `GET /report/{task_id}`
+
+## Docker Compose Deployment
+
+This project can run as four isolated services:
+
+- `db`: PostgreSQL for TopicOpinionAgent + MindSpider tables
+- `api`: FastAPI
+- `ui`: Streamlit
+- `crawler`: MindSpider scheduled workflow runner
+
+Compose now initializes PostgreSQL with `MindSpider/schema/mindspider_tables_postgres.sql`.
+
+```bash
+docker compose up --build -d
+```
+
+Check service status:
+
+```bash
+docker compose ps
+```
+
+Stop all:
+
+```bash
+docker compose down
+```
+
+MindSpider module is embedded as a full independent directory at `MindSpider/` with unchanged internal structure.
 
 ## Notes
 

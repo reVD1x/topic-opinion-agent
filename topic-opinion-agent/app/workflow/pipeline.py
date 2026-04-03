@@ -11,6 +11,7 @@ from app.agents.sentiment_agent import SentimentAgent
 from app.data.external_bocha import ExternalBocha
 from app.data.external_tavily import ExternalTavily
 from app.data.fusion import DataFusionService
+from app.data.mindspider_adapter import MindSpiderAdapter
 from app.data.pg_repository import PgRepository
 from app.llm.gateway import LLMGateway
 from app.schemas.report import TopicReport
@@ -29,6 +30,7 @@ class TopicAnalysisPipeline:
 
         self.bocha = ExternalBocha()
         self.tavily = ExternalTavily()
+        self.mindspider = MindSpiderAdapter()
         self.fusion = DataFusionService()
 
     def run(
@@ -63,6 +65,10 @@ class TopicAnalysisPipeline:
                     )
 
         if use_external:
+            try:
+                docs.extend(self.mindspider.search(analysis_topic_id, query=external_query, limit=8))
+            except Exception as exc:
+                warnings.append(f"mindspider_failed:{exc}")
             try:
                 docs.extend(self.bocha.search(analysis_topic_id, query=external_query, limit=8))
             except Exception as exc:
