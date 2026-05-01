@@ -5,12 +5,15 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.report import AgentStepLog
+
 
 class TopicAnalysisRequest(BaseModel):
     topic_id: str
     target_date: Optional[date] = None
     enable_forecast: bool = False
     use_external: bool = True
+    use_mindspider: bool = False
 
 
 class TopicAnalysisTask(BaseModel):
@@ -21,3 +24,4 @@ class TopicAnalysisTask(BaseModel):
     updated_at: datetime
     message: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
+    agent_logs: list[AgentStepLog] = Field(default_factory=list)

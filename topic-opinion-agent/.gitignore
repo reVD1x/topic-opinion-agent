@@ -3,3 +3,24 @@ __pycache__/
 .venv/
 .env
 .pytest_cache/
+
+# macOS
+.DS_Store
+*.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data exports / temp
+data/
+*.csv
+
+# MindSpider temp
+MindSpider/DeepSentimentCrawling/MediaCrawler/.deps_installed
+MindSpider/DeepSentimentCrawling/MediaCrawler/data/
+
+# Streamlit
+.streamlit/secrets.toml

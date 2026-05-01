@@ -1,21 +1,29 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SentimentItem(BaseModel):
     doc_id: str
     label: Literal["positive", "neutral", "negative"]
     confidence: float
+    reasoning: str = ""
+
+
+class OpinionPoint(BaseModel):
+    """A single opinion point with evidence traceability."""
+    content: str
+    evidence_ids: list[str] = Field(default_factory=list, description="doc_id references backing this opinion")
+    reasoning: str = ""
 
 
 class OpinionSummary(BaseModel):
-    supports: list[str]
-    opposes: list[str]
-    neutrals: list[str]
-    controversy_points: list[str]
+    supports: list[OpinionPoint] = Field(default_factory=list)
+    opposes: list[OpinionPoint] = Field(default_factory=list)
+    neutrals: list[OpinionPoint] = Field(default_factory=list)
+    controversy_points: list[OpinionPoint] = Field(default_factory=list)
 
 
 class RiskResult(BaseModel):
@@ -32,3 +40,8 @@ class ForecastResult(BaseModel):
     counterfactuals: list[str]
     uncertainty: Literal["low", "medium", "high"]
     disclaimer: str
+    reasoning: str = ""
+    evidence_ids: list[str] = Field(
+        default_factory=list,
+        description="doc_id references that inform the forecast reasoning",
+    )

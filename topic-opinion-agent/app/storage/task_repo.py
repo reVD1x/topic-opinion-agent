@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from threading import Lock
-from typing import Literal
+from typing import Any, Literal
 
-from app.schemas.report import TopicReport
+from app.schemas.report import AgentStepLog, TopicReport
 from app.schemas.task import TopicAnalysisTask
 
 
@@ -41,6 +41,12 @@ class TaskRepository:
             task.message = message
             if warnings is not None:
                 task.warnings = warnings
+
+    def save_agent_logs(self, task_id: str, agent_logs: list[AgentStepLog]) -> None:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task:
+                task.agent_logs = list(agent_logs)
 
     def save_report(self, task_id: str, report: TopicReport) -> None:
         with self._lock:

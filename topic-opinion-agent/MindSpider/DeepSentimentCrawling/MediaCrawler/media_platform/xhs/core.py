@@ -315,6 +315,11 @@ class XiaoHongShuCrawler(AbstractCrawler):
             except KeyError as ex:
                 utils.logger.error(f"[XiaoHongShuCrawler.get_note_detail_async_task] have not fund note detail note_id:{note_id}, err: {ex}")
                 return None
+            except Exception as ex:
+                utils.logger.error(
+                    f"[XiaoHongShuCrawler.get_note_detail_async_task] Failed to get note detail note_id:{note_id}, err: {ex}"
+                )
+                return None
 
     async def batch_get_note_comments(self, note_list: List[str], xsec_tokens: List[str]):
         """Batch get note comments"""

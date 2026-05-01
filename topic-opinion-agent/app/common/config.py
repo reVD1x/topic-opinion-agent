@@ -31,9 +31,11 @@ class Settings:
     topic_name_column: str = os.getenv("TOPIC_NAME_COLUMN", "topic_name")
     topic_date_column: str = os.getenv("TOPIC_DATE_COLUMN", "topic_date")
 
+    bocha_enabled: bool = os.getenv("BOCHA_ENABLED", "true").lower() == "true"
     bocha_api_key: str = os.getenv("BOCHA_API_KEY", "")
     bocha_base_url: str = os.getenv("BOCHA_BASE_URL", "")
 
+    tavily_enabled: bool = os.getenv("TAVILY_ENABLED", "true").lower() == "true"
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
     tavily_base_url: str = os.getenv("TAVILY_BASE_URL", "https://api.tavily.com/search")
 
@@ -44,6 +46,9 @@ class Settings:
     llm_max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
     llm_retry_base_seconds: float = float(os.getenv("LLM_RETRY_BASE_SECONDS", "1.0"))
     llm_retry_max_seconds: float = float(os.getenv("LLM_RETRY_MAX_SECONDS", "8.0"))
+    llm_json_mode: bool = os.getenv("LLM_JSON_MODE", "true").lower() == "true"
+    llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "-1"))
+    llm_thinking_disabled: bool = os.getenv("LLM_THINKING_DISABLED", "true").lower() == "true"
 
     mindspider_enabled: bool = os.getenv("MINDSPIDER_ENABLED", "true").lower() == "true"
     mindspider_module_path: str = os.getenv("MINDSPIDER_MODULE_PATH", "MindSpider")

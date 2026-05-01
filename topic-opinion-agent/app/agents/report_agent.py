@@ -1,33 +1,34 @@
+"""报告生成 Agent — 汇总各模块输出为结构化 TopicReport 和 Markdown 报告。"""
+
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Callable
 
+from app.common.constants import (
+    EVIDENCE_MAX_ITEMS,
+    MODULE_NAME_MAP,
+    RISK_LEVEL_MAP,
+    TIME_HORIZON_MAP,
+    TREND_MAP,
+    UNCERTAINTY_MAP,
+    to_cn,
+)
+from app.common.utils import ts
 from app.llm.gateway import LLMGateway
 from app.schemas.analysis import ForecastResult, OpinionSummary, RiskResult, SentimentItem
 from app.schemas.doc import UnifiedDoc
 from app.schemas.report import EvidenceItem, TopicReport
 
-
-RISK_LEVEL_MAP = {"high": "高", "medium": "中", "low": "低"}
-TREND_MAP = {"rise": "上升", "flat": "平稳", "fall": "下降"}
-UNCERTAINTY_MAP = {"high": "高", "medium": "中", "low": "低"}
-TIME_HORIZON_MAP = {"24h": "24 小时", "72h": "72 小时"}
-MODULE_NAME_MAP = {
-    "collect": "数据采集",
-    "preprocess": "数据预处理",
-    "sentiment": "情感分析",
-    "opinion": "观点抽取",
-    "risk": "风险研判",
-    "forecast": "趋势预测",
-    "report": "报告生成",
-}
-
-
-def _to_cn(mapping: dict[str, str], value: str) -> str:
-    return mapping.get(value, value)
+logger = logging.getLogger(__name__)
 
 
 class ReportAgent:
+    """接收 pipeline 各步骤输出，生成模块总结、综合总结和 Markdown 报告。
+
+    通常作为 pipeline 最后一步调用。
+    """
+
     def __init__(self, llm: LLMGateway) -> None:
         self.llm = llm
 
@@ -40,15 +41,23 @@ class ReportAgent:
         opinions: OpinionSummary,
         risk: RiskResult,
         forecast: ForecastResult | None,
+        log_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> TopicReport:
+        if log_callback:
+            log_callback({"ts": ts(), "msg": "开始生成报告"})
+
         summary = {"positive": 0, "neutral": 0, "negative": 0}
         for s in sentiments:
             summary[s.label] += 1
 
         evidence = [
             EvidenceItem(doc_id=d.doc_id, source_type=d.source_type, title=d.title, url=d.url)
-            for d in docs[:50]
+            for d in docs[:EVIDENCE_MAX_ITEMS]
         ]
+
+        if log_callback:
+            log_callback({"ts": ts(), "msg": f"生成模块总结（7 个模块）…"})
+
         module_summaries = self._build_module_summaries(
             docs=docs,
             source_distribution=source_distribution,
@@ -57,9 +66,31 @@ class ReportAgent:
             risk=risk,
             forecast=forecast,
             evidence_count=len(evidence),
+            log_callback=log_callback,
         )
-        md = self._build_markdown(topic_id, source_distribution, summary, opinions, risk, forecast, module_summaries)
 
+        if log_callback:
+            log_callback({"ts": ts(), "msg": "生成综合总结…"})
+
+        narrative = self._build_narrative_summary(
+            topic_id=topic_id,
+            source_distribution=source_distribution,
+            sentiment_summary=summary,
+            opinions=opinions,
+            risk=risk,
+            forecast=forecast,
+            log_callback=log_callback,
+        )
+
+        if log_callback:
+            log_callback({"ts": ts(), "msg": "生成 Markdown 报告"})
+
+        md = self._build_markdown(topic_id, source_distribution, summary, opinions, risk, forecast, module_summaries, narrative)
+
+        if log_callback:
+            log_callback({"ts": ts(), "msg": f"报告完成：{len(evidence)} 条证据，{len(summary)} 类情感"})
+
+        logger.info("报告完成：%d 条证据，%d 类情感", len(evidence), len(summary))
         return TopicReport(
             topic_id=topic_id,
             overview=f"样本总量 {len(docs)}，覆盖 {len(source_distribution)} 类来源。",
@@ -71,6 +102,7 @@ class ReportAgent:
             evidence_list=evidence,
             forecast=forecast,
             module_summaries=module_summaries,
+            narrative_summary=narrative,
             markdown=md,
         )
 
@@ -83,6 +115,7 @@ class ReportAgent:
         risk: RiskResult,
         forecast: ForecastResult | None,
         evidence_count: int,
+        log_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, str]:
         top_source = "unknown"
         if source_distribution:
@@ -128,26 +161,118 @@ class ReportAgent:
         }
 
         for module_name, context in module_contexts.items():
-            summaries[module_name] = self._summarize_module(module_name, context)
+            summaries[module_name] = self._summarize_module(module_name, context, log_callback=log_callback)
 
         return summaries
 
-    def _summarize_module(self, module_name: str, context: dict[str, Any]) -> str:
+    def _summarize_module(
+        self,
+        module_name: str,
+        context: dict[str, Any],
+        log_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> str:
+        """对单个模块调用 LLM 生成一句话总结。LLM 不可用时返回格式化回退文本。"""
         if not self.llm.enabled:
             return f"{module_name}模块已完成，关键信息：{context}"
 
         rsp = self.llm.chat_json(
             system_prompt=(
-                "你是舆情分析流水线助手。"
-                "请基于给定模块信息生成1-2句中文总结，控制在60字内。"
+                "你是舆情分析流水线助手。请按以下步骤思考：\n"
+                "1. 理解模块数据中的关键指标与数值含义。\n"
+                "2. 提炼该模块最核心的1-2个发现。\n"
+                "3. 用精炼中文总结，控制在60字内。\n"
                 "输出JSON: {summary:string}。"
             ),
             user_prompt=f"module={module_name}\ncontext={context}",
         )
         summary = rsp.get("summary") if isinstance(rsp, dict) else None
         if isinstance(summary, str) and summary.strip():
+            if log_callback:
+                log_callback({"ts": ts(), "msg": f"  {module_name} 模块总结完成"})
             return summary.strip()
         return f"{module_name}模块已完成，关键信息：{context}"
+
+    def _build_narrative_summary(
+        self,
+        topic_id: str,
+        source_distribution: dict[str, int],
+        sentiment_summary: dict[str, int],
+        opinions: OpinionSummary,
+        risk: RiskResult,
+        forecast: ForecastResult | None,
+        log_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> str:
+        """生成 350-500 字中文综合总结，涵盖话题扫描、情感诊断、观点梳理、风险评估、趋势预判五个维度。"""
+        total = sum(sentiment_summary.values())
+        positive = sentiment_summary.get("positive", 0)
+        negative = sentiment_summary.get("negative", 0)
+        neutral = sentiment_summary.get("neutral", 0)
+
+        if total > 0:
+            positive_pct = positive / total * 100
+            negative_pct = negative / total * 100
+            if positive_pct > negative_pct:
+                sentiment_trend = "整体偏正面"
+            elif negative_pct > positive_pct:
+                sentiment_trend = "整体偏负面"
+            else:
+                sentiment_trend = "正负均衡"
+        else:
+            sentiment_trend = "暂无足够数据判断情感倾向"
+
+        risk_label = to_cn(RISK_LEVEL_MAP, risk.risk_level)
+        trigger_list = "、".join(risk.triggers[:5]) if risk.triggers else "未发现明显触发词"
+        sources = "、".join(f"{k}({v})" for k, v in sorted(source_distribution.items(), key=lambda x: x[1], reverse=True)[:5])
+
+        context = {
+            "topic": topic_id,
+            "total_samples": total,
+            "source_distribution": sources,
+            "sentiment": f"正向{positive}，中性{neutral}，负向{negative}，{sentiment_trend}",
+            "supports": [op.content for op in opinions.supports[:5]] if opinions.supports else ["无"],
+            "opposes": [op.content for op in opinions.opposes[:5]] if opinions.opposes else ["无"],
+            "controversy": [op.content for op in opinions.controversy_points[:5]] if opinions.controversy_points else ["无"],
+            "risk_level": risk_label,
+            "risk_triggers": trigger_list,
+            "forecast": (
+                f"趋势{to_cn(TREND_MAP, forecast.trend_judgement)}，不确定性{to_cn(UNCERTAINTY_MAP, forecast.uncertainty)}"
+                if forecast
+                else "未启用"
+            ),
+        }
+
+        if not self.llm.enabled:
+            return self._fallback_narrative(context)
+
+        rsp = self.llm.chat_json(
+            system_prompt=(
+                "你是资深舆情分析师。请按以下步骤进行分析与撰写：\n\n"
+                "1. 话题扫描 — 审视话题概况、样本总量与来源分布，判断舆论场规模与多样性。\n"
+                "2. 情感诊断 — 分析正/中/负情感比例，判断整体舆论基调及其可能原因。\n"
+                "3. 观点梳理 — 提炼支持方与反对方的核心论点，识别争议焦点与共识区域。\n"
+                "4. 风险评估 — 结合触发因素与观点对立程度，评估当前风险等级的现实含义。\n"
+                "5. 趋势预判 — 基于现有信号与不确定性，做出短期走向判断。\n\n"
+                "完成分析后，撰写一段350-500字的中文综合总结，涵盖以上五个维度。"
+                "语言精炼专业，直接给出总结段落，不需要标题或分点。"
+                "输出JSON: {narrative:string}。"
+            ),
+            user_prompt=f"analysis_context:\n{context}",
+        )
+        narrative = rsp.get("narrative") if isinstance(rsp, dict) else None
+        if isinstance(narrative, str) and narrative.strip():
+            return narrative.strip()
+        return self._fallback_narrative(context)
+
+    @staticmethod
+    def _fallback_narrative(context: dict[str, Any]) -> str:
+        """LLM 不可用时的模板化总结回退。"""
+        return (
+            f"针对话题「{context['topic']}」的分析显示，共采集样本{context['total_samples']}条，"
+            f"来源覆盖{context['source_distribution']}。"
+            f"情感分布为{context['sentiment']}。"
+            f"风险等级评定为{context['risk_level']}，触发因素包括{context['risk_triggers']}。"
+            f"趋势预测：{context['forecast']}。"
+        )
 
     @staticmethod
     def _build_markdown(
@@ -158,8 +283,15 @@ class ReportAgent:
         risk: RiskResult,
         forecast: ForecastResult | None,
         module_summaries: dict[str, str],
+        narrative_summary: str = "",
     ) -> str:
-        lines = [f"# 话题分析报告：{topic_id}", "", "## 来源分布"]
+        """构建完整的 Markdown 格式分析报告。"""
+        lines = [f"# 话题分析报告：{topic_id}", ""]
+
+        if narrative_summary:
+            lines.extend(["## 综合总结", "", narrative_summary, ""])
+
+        lines.extend(["## 来源分布"])
 
         if source_distribution:
             lines.extend(["| 来源类型 | 数量 |", "| --- | ---: |"])
@@ -173,19 +305,25 @@ class ReportAgent:
         lines.append(f"| 中性 | {sentiment_summary.get('neutral', 0)} |")
         lines.append(f"| 负向 | {sentiment_summary.get('negative', 0)} |")
 
+        def _fmt_opinion(items) -> list[str]:
+            if not items:
+                return ["- 无"]
+            out: list[str] = []
+            for op in items:
+                ids = ", ".join(op.evidence_ids[:3])
+                out.append(f"- {op.content}  `[{ids}]`")
+            return out
+
         lines.extend(["", "## 观点阵营", "### 支持观点"])
-        lines.extend([f"- {item}" for item in opinions.supports] or ["- 无"])
-
+        lines.extend(_fmt_opinion(opinions.supports))
         lines.extend(["", "### 反对观点"])
-        lines.extend([f"- {item}" for item in opinions.opposes] or ["- 无"])
-
+        lines.extend(_fmt_opinion(opinions.opposes))
         lines.extend(["", "### 中立观点"])
-        lines.extend([f"- {item}" for item in opinions.neutrals] or ["- 无"])
-
+        lines.extend(_fmt_opinion(opinions.neutrals))
         lines.extend(["", "### 争议焦点"])
-        lines.extend([f"- {item}" for item in opinions.controversy_points] or ["- 无"])
+        lines.extend(_fmt_opinion(opinions.controversy_points))
 
-        lines.extend(["", "## 风险研判", f"- 风险等级：{_to_cn(RISK_LEVEL_MAP, risk.risk_level)}", "- 触发因素："])
+        lines.extend(["", "## 风险研判", f"- 风险等级：{to_cn(RISK_LEVEL_MAP, risk.risk_level)}", "- 触发因素："])
         lines.extend([f"  - {item}" for item in risk.triggers] or ["  - 无"])
 
         lines.append("- 证据 ID（最多 10 条）：")
@@ -193,15 +331,16 @@ class ReportAgent:
 
         lines.extend(["", "## 模块总结"])
         for module_name, summary in module_summaries.items():
-            lines.append(f"- {_to_cn(MODULE_NAME_MAP, module_name)}：{summary}")
+            lines.append(f"- {to_cn(MODULE_NAME_MAP, module_name)}：{summary}")
 
         if forecast:
             lines.extend(
                 [
                     "",
                     "## 趋势预测（仅基于 LLM 推断）",
-                    f"- 趋势判断：{_to_cn(TREND_MAP, forecast.trend_judgement)}",
-                    f"- 时间窗：{_to_cn(TIME_HORIZON_MAP, forecast.time_horizon)}",
+                    f"- 趋势判断：{to_cn(TREND_MAP, forecast.trend_judgement)}",
+                    f"- 时间窗：{to_cn(TIME_HORIZON_MAP, forecast.time_horizon)}",
+                    f"- 不确定性：{to_cn(UNCERTAINTY_MAP, forecast.uncertainty)}",
                     "- 关键假设：",
                 ]
             )
@@ -210,11 +349,12 @@ class ReportAgent:
             lines.append("- 反事实：")
             lines.extend([f"  - {item}" for item in forecast.counterfactuals] or ["  - 无"])
 
-            lines.extend(
-                [
-                    f"- 不确定性：{_to_cn(UNCERTAINTY_MAP, forecast.uncertainty)}",
-                    f"- 说明：{forecast.disclaimer}",
-                ]
-            )
+            lines.append("- 关键证据 ID：")
+            if forecast.evidence_ids:
+                lines.extend([f"  - `{doc_id}`" for doc_id in forecast.evidence_ids[:10]])
+            else:
+                lines.append("  - 无")
+
+            lines.append(f"\n  - 说明：{forecast.disclaimer}")
 
         return "\n".join(lines)

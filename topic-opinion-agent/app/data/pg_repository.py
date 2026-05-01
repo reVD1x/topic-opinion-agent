@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.common.config import settings
+from app.common.constants import SIMILARITY_EXACT_MIN, SIMILARITY_PARTIAL_MIN
 from app.schemas.doc import UnifiedDoc
 
 
@@ -52,6 +53,12 @@ class PgRepository:
             if best:
                 return best
 
+        keyword_rows = self._query_topics_by_keyword(query, target_date, limit=30)
+        if keyword_rows:
+            kw_match = self._pick_keyword_match(query, keyword_rows)
+            if kw_match:
+                return kw_match
+
         fallback_rows = self._query_recent_topics(target_date, limit=240)
         best = self._pick_best_candidate(query, fallback_rows)
         if best and best.score >= 0.45:
@@ -76,10 +83,50 @@ class PgRepository:
                 return best
         return None
 
-    def load_topic_evidence(self, topic_key: str, target_date: date | None) -> list[UnifiedDoc]:
+    def load_topic_evidence(
+        self,
+        topic_key: str,
+        target_date: date | None,
+        fallback_keywords: list[str] | None = None,
+    ) -> list[UnifiedDoc]:
         news_docs = self._load_news_docs(topic_key, target_date)
         platform_docs = self._load_platform_docs(topic_key, target_date)
-        return news_docs + platform_docs
+        docs = news_docs + platform_docs
+
+        if not docs and fallback_keywords:
+            docs = self._load_news_docs_by_keywords(fallback_keywords, limit=30)
+            docs += self._load_platform_docs_by_keywords(fallback_keywords, limit=30)
+
+        return docs
+
+    def get_topic_keywords(self, topic_id: str) -> list[str]:
+        """Extract keywords from a topic's keywords JSON field."""
+        import json as _json
+
+        sql = text(
+            f"""
+            SELECT to_jsonb(t) ->> 'keywords' AS keywords
+            FROM {settings.table_daily_topics} t
+            WHERE to_jsonb(t) ->> :topic_id_col = :topic_id
+            LIMIT 1
+            """
+        )
+        row = self._session.execute(
+            sql,
+            {
+                "topic_id_col": settings.topic_id_column,
+                "topic_id": topic_id,
+            },
+        ).mappings().first()
+        if not row or not row.get("keywords"):
+            return []
+        try:
+            parsed = _json.loads(row["keywords"])
+            if isinstance(parsed, list):
+                return [str(k).strip() for k in parsed if str(k).strip()]
+        except (ValueError, TypeError):
+            pass
+        return []
 
     def load_crawling_tasks_snapshot(self) -> dict[str, int]:
         sql = text(
@@ -155,6 +202,40 @@ class PgRepository:
         ).mappings()
         return [dict(row) for row in rows]
 
+    def _query_topics_by_keyword(
+        self, topic_key: str, target_date: date | None, limit: int
+    ) -> list[dict[str, Any]]:
+        date_filter = (
+            f"AND (to_jsonb(t) ->> '{settings.topic_date_column}')::date = :target_date"
+            if target_date
+            else ""
+        )
+        sql = text(
+            f"""
+            SELECT DISTINCT
+                to_jsonb(t) ->> :topic_id_col AS topic_id,
+                to_jsonb(t) ->> :topic_name_col AS topic_name
+            FROM {settings.table_daily_topics} t
+            WHERE (
+                LOWER(COALESCE(to_jsonb(t) ->> 'keywords', '')) LIKE :like_pattern
+                OR LOWER(COALESCE(to_jsonb(t) ->> 'topic_description', '')) LIKE :like_pattern
+            )
+            {date_filter}
+            LIMIT :limit
+            """
+        )
+        rows = self._session.execute(
+            sql,
+            {
+                "target_date": target_date,
+                "topic_id_col": settings.topic_id_column,
+                "topic_name_col": settings.topic_name_column,
+                "like_pattern": f"%{topic_key.lower()}%",
+                "limit": limit,
+            },
+        ).mappings()
+        return [dict(row) for row in rows]
+
     def _query_recent_topics(self, target_date: date | None, limit: int) -> list[dict[str, Any]]:
         date_filter = (
             f"WHERE (to_jsonb(t) ->> '{settings.topic_date_column}')::date = :target_date"
@@ -200,7 +281,7 @@ class PgRepository:
                 matched_value = topic_name or topic_id
                 score = name_score
 
-            if score < 0.52:
+            if score < SIMILARITY_PARTIAL_MIN:
                 continue
 
             resolution = TopicResolution(
@@ -209,11 +290,33 @@ class PgRepository:
                 topic_name=topic_name,
                 matched_value=matched_value,
                 score=score,
-                matched_by="partial" if score >= 0.75 else "similarity",
+                matched_by="partial" if score >= SIMILARITY_EXACT_MIN else "similarity",
             )
             if not best or resolution.score > best.score:
                 best = resolution
         return best
+
+    @staticmethod
+    def _pick_keyword_match(query: str, rows: list[dict[str, Any]]) -> TopicResolution | None:
+        """Pick the first keyword-matched row with a fixed score, since
+        the match was on content (keywords/description), not on topic_id/name
+        string similarity."""
+        if not rows:
+            return None
+        row = rows[0]
+        topic_id = str(row.get("topic_id") or "").strip()
+        topic_name_raw = row.get("topic_name")
+        topic_name = str(topic_name_raw).strip() if topic_name_raw else None
+        if not topic_id and not topic_name:
+            return None
+        return TopicResolution(
+            query=query,
+            topic_id=topic_id or (topic_name or query),
+            topic_name=topic_name,
+            matched_value=query,
+            score=0.50,
+            matched_by="keyword",
+        )
 
     @staticmethod
     def _similarity_score(query: str, candidate: str) -> float:
@@ -406,6 +509,104 @@ class PgRepository:
         row = self._session.execute(sql, {"table_name": table_name}).mappings().first()
         return bool(row and row.get("present"))
 
+    def _load_news_docs_by_keywords(self, keywords: list[str], limit: int = 30) -> list[UnifiedDoc]:
+        """Search daily_news directly by keyword matching on title/description."""
+        if not keywords:
+            return []
+        conditions = " OR ".join(
+            [
+                "LOWER(COALESCE(to_jsonb(n) ->> 'title', '')) LIKE :kw" + str(i)
+                + " OR LOWER(COALESCE(to_jsonb(n) ->> 'description', '')) LIKE :kw" + str(i)
+                for i in range(len(keywords))
+            ]
+        )
+        params = {f"kw{i}": f"%{kw.lower()}%" for i, kw in enumerate(keywords)}
+        params["limit"] = limit
+
+        sql = text(
+            f"""
+            SELECT
+                COALESCE(to_jsonb(n) ->> 'news_id', to_jsonb(n) ->> 'id') AS raw_id,
+                to_jsonb(n) ->> 'title' AS title,
+                COALESCE(to_jsonb(n) ->> 'description', '') AS content,
+                to_jsonb(n) ->> 'url' AS url,
+                to_jsonb(n) ->> 'source_platform' AS source_name,
+                NULL AS author,
+                to_jsonb(n) ->> 'crawl_date' AS publish_time
+            FROM {settings.table_daily_news} n
+            WHERE {conditions}
+            LIMIT :limit
+            """
+        )
+        rows = self._session.execute(sql, params).mappings()
+        return [self._to_news_doc_by_kw(row) for row in rows]
+
+    def _load_platform_docs_by_keywords(self, keywords: list[str], limit: int = 30) -> list[UnifiedDoc]:
+        """Search platform tables directly by keyword matching on content fields."""
+        if not keywords:
+            return []
+        legacy_tables = [t for t in self._platform_tables if self._table_exists(t)]
+        if not legacy_tables:
+            return []
+
+        conditions = " OR ".join(
+            [
+                "LOWER(COALESCE(j ->> 'title', '')) LIKE :kw" + str(i)
+                + " OR LOWER(COALESCE(j ->> 'desc', '')) LIKE :kw" + str(i)
+                + " OR LOWER(COALESCE(j ->> 'content', '')) LIKE :kw" + str(i)
+                for i in range(len(keywords))
+            ]
+        )
+        params = {f"kw{i}": f"%{kw.lower()}%" for i, kw in enumerate(keywords)}
+        params["limit"] = limit
+
+        results: list[UnifiedDoc] = []
+        seen_ids: set[str] = set()
+        per_table = max(limit, 10)
+
+        for table_name in legacy_tables:
+            if len(results) >= limit:
+                break
+            sql = text(
+                f"""
+                SELECT
+                    '{table_name}' AS platform_name,
+                    j
+                FROM (
+                    SELECT to_jsonb(p) AS j
+                    FROM {table_name} p
+                ) src
+                WHERE {conditions}
+                LIMIT :per_table
+                """
+            )
+            params["per_table"] = per_table
+            rows = self._session.execute(sql, params).mappings()
+            for row in rows:
+                doc = self._to_platform_doc("keyword_search", row)
+                if doc.doc_id not in seen_ids:
+                    seen_ids.add(doc.doc_id)
+                    results.append(doc)
+                if len(results) >= limit:
+                    break
+
+        return results
+
+    @staticmethod
+    def _to_news_doc_by_kw(row: Any) -> UnifiedDoc:
+        return UnifiedDoc(
+            doc_id=f"news:{row.get('raw_id') or 'unknown'}",
+            topic_id="keyword_search",
+            source_type="news",
+            source_name=row.get("source_name"),
+            title=row.get("title"),
+            content=row.get("content") or "",
+            publish_time=row.get("publish_time"),
+            url=row.get("url"),
+            author=row.get("author"),
+            credibility_hint="high",
+        )
+
     @staticmethod
     def _to_news_doc(topic_key: str, row: Any) -> UnifiedDoc:
         return UnifiedDoc(
@@ -445,3 +646,56 @@ class PgRepository:
             author=payload.get("author") or payload.get("nickname") or payload.get("user_name"),
             credibility_hint="medium",
         )
+
+    def insert_platform_content(
+        self,
+        docs: list[UnifiedDoc],
+        topic_id: str,
+        topic_name: str,
+        keywords: list[str],
+    ) -> int:
+        """Insert crawled platform docs into platform_content table with topic tags.
+
+        Uses ON CONFLICT DO NOTHING to skip duplicates (by platform + url).
+        Returns number of newly inserted rows.
+        """
+        import json as _json
+
+        if not self._platform_content_table or not self._table_exists(self._platform_content_table):
+            return 0
+
+        inserted = 0
+        for doc in docs:
+            try:
+                sql = text(
+                    f"""
+                    INSERT INTO {self._platform_content_table}
+                        (platform, note_id, title, content, url, author, publish_time,
+                         topic_id, topic_name, keywords)
+                    VALUES
+                        (:platform, :note_id, :title, :content, :url, :author, :publish_time,
+                         :topic_id, :topic_name, :keywords)
+                    ON CONFLICT (platform, url) DO NOTHING
+                    """
+                )
+                result = self._session.execute(
+                    sql,
+                    {
+                        "platform": doc.source_name or doc.source_type,
+                        "note_id": doc.doc_id,
+                        "title": doc.title,
+                        "content": doc.content,
+                        "url": doc.url,
+                        "author": doc.author,
+                        "publish_time": doc.publish_time,
+                        "topic_id": topic_id,
+                        "topic_name": topic_name,
+                        "keywords": _json.dumps(keywords, ensure_ascii=False),
+                    },
+                )
+                if result.rowcount and result.rowcount > 0:
+                    inserted += 1
+            except Exception:
+                continue
+
+        return inserted

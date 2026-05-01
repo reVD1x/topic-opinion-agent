@@ -19,8 +19,8 @@
 
 # 基础配置
 PLATFORM = "xhs"  # 平台，xhs | dy | ks | bili | wb | tieba | zhihu
-KEYWORDS = "中东冲突,谢娜薛之谦,戒糖跳绳,终末地,种地吧,月全食,外交部回应,地缘政治,巴展,华莱士咖啡"  # 关键词搜索配置，以英文逗号分隔
-LOGIN_TYPE = "qrcode"  # qrcode or phone or cookie
+KEYWORDS = "中国航母,AI,日本拥核"  # 关键词搜索配置，以英文逗号分隔
+LOGIN_TYPE = "cookie"
 COOKIES = ""
 CRAWLER_TYPE = "search"  # 爬取类型，search(关键词搜索) | detail(帖子详情)| creator(创作者主页数据)
 # 是否开启 IP 代理
@@ -78,7 +78,7 @@ USER_DATA_DIR = "%s_user_data_dir"  # %s will be replaced by platform name
 START_PAGE = 1
 
 # 爬取视频/帖子的数量控制
-CRAWLER_MAX_NOTES_COUNT = 10
+CRAWLER_MAX_NOTES_COUNT = 3
 
 # 并发爬虫数量控制
 MAX_CONCURRENCY_NUM = 1
