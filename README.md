@@ -137,7 +137,6 @@ POST /analysis/topic
 ## 项目结构
 
 ```
-topic-opinion-agent/
 ├── app/
 │   ├── agents/          # 6 个分析 Agent（preprocess/sentiment/opinion/risk/forecast/report）
 │   ├── api/             # FastAPI 入口与路由
@@ -234,3 +233,7 @@ pytest tests/test_evidence_chain.py -v
 # 检查代码导入
 python -c "from app.workflow.pipeline import TopicAnalysisPipeline; print('OK')"
 ```
+
+## 致谢
+
+本项目参考引用了 [BettaFish](https://github.com/666ghj/BettaFish) 项目，其 MindSpider 子模块（`MindSpider/DeepSentimentCrawling/MediaCrawler`）作为本项目爬虫基础设施的核心组件。

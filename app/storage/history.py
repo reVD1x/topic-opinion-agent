@@ -9,7 +9,7 @@ from typing import Any
 
 from app.schemas.report import AgentStepLog, TopicReport
 
-HISTORY_DIR = Path(__file__).resolve().parents[3] / "data"
+HISTORY_DIR = Path(__file__).resolve().parents[2] / "data"
 HISTORY_FILE = HISTORY_DIR / "analysis_history.json"
 MAX_HISTORY = 20
 
