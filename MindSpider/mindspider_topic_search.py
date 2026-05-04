@@ -38,6 +38,8 @@ def main() -> None:
                         choices=["cookie", "qrcode"])
     parser.add_argument("--headless", default="true",
                         choices=["true", "false"])
+    parser.add_argument("--mediacrawler-path", default="",
+                        help="Optional isolated MediaCrawler dir for parallel crawling")
     args = parser.parse_args()
 
     keywords = [k.strip() for k in args.keywords.split(",") if k.strip()]
@@ -48,7 +50,8 @@ def main() -> None:
     keywords = keywords[:3]
     headless = args.headless.lower() == "true"
 
-    crawler = PlatformCrawler()
+    mc_path = args.mediacrawler_path.strip() or None
+    crawler = PlatformCrawler(mediacrawler_path=mc_path)
     try:
         result = crawler.run_crawler(
             platform=args.platform,

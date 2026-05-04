@@ -286,6 +286,18 @@ class BaiduTieBaClient(AbstractApiClient):
             # Wait for page loading, using delay setting from config file
             await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
 
+            # 贴吧新版页面需要切回旧版才能正常解析搜索结果
+            back_old_btn = self.playwright_page.locator('use[xlink\\:href="#back_old"]')
+            if await back_old_btn.count() > 0:
+                utils.logger.info("[BaiduTieBaClient.get_notes_by_keyword] Detected new tieba layout, clicking 'back to old version'...")
+                await back_old_btn.first.click()
+                await asyncio.sleep(3)
+                # Wait for old layout search results to appear
+                try:
+                    await self.playwright_page.wait_for_selector("div.s_post", timeout=10000)
+                except Exception:
+                    utils.logger.warning("[BaiduTieBaClient.get_notes_by_keyword] Old layout s_post not found after click")
+
             # Get page HTML content
             page_content = await self.playwright_page.content()
             utils.logger.info(f"[BaiduTieBaClient.get_notes_by_keyword] Successfully retrieved search page HTML, length: {len(page_content)}")

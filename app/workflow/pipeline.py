@@ -130,6 +130,7 @@ class TopicAnalysisPipeline:
         target_date: date | None,
         use_external: bool,
         use_mindspider: bool,
+        mindspider_platforms: list[str],
         step_no: list[int],
         agent_logs: list[AgentStepLog],
         warnings: list[str],
@@ -172,8 +173,11 @@ class TopicAnalysisPipeline:
         if use_external:
             if use_mindspider:
                 try:
-                    cb({"ts": "", "msg": "MindSpider 爬取中…"})
-                    mindspider_docs = self.mindspider.search(keywords=mindspider_kws[:3])
+                    cb({"ts": "", "msg": f"MindSpider 爬取中 ({', '.join(mindspider_platforms)})…"})
+                    mindspider_docs = self.mindspider.search(
+                        keywords=mindspider_kws[:3],
+                        platforms=mindspider_platforms,
+                    )
                     docs.extend(mindspider_docs)
                     # Sync crawled docs to platform_content with topic tags
                     if mindspider_docs:
@@ -463,6 +467,7 @@ class TopicAnalysisPipeline:
         enable_forecast: bool,
         use_external: bool,
         use_mindspider: bool = False,
+        mindspider_platforms: list[str] | None = None,
         progress_callback: Callable[[str], None] | None = None,
     ) -> tuple[TopicReport, list[str], str, list[AgentStepLog]]:
         # Date filtering is intentionally disabled: always search across all time ranges.
@@ -472,11 +477,14 @@ class TopicAnalysisPipeline:
         step_no = [0]  # mutable int via single-element list
 
         # Step 1: collect
+        if mindspider_platforms is None:
+            mindspider_platforms = ["xhs"]
         docs, analysis_topic_id, mindspider_kws = self._step_collect(
             topic_id=topic_id,
             target_date=target_date,
             use_external=use_external,
             use_mindspider=use_mindspider,
+            mindspider_platforms=mindspider_platforms,
             step_no=step_no,
             agent_logs=agent_logs,
             warnings=warnings,

@@ -26,17 +26,25 @@ except ImportError:
 
 class PlatformCrawler:
     """平台爬虫管理器"""
-    
-    def __init__(self):
-        """初始化平台爬虫管理器"""
-        self.mediacrawler_path = Path(__file__).parent / "MediaCrawler"
+
+    def __init__(self, mediacrawler_path: str | Path | None = None):
+        """初始化平台爬虫管理器
+
+        Args:
+            mediacrawler_path: 可选的自定义 MediaCrawler 路径。
+                             用于并行爬取时隔离配置文件。
+        """
+        if mediacrawler_path:
+            self.mediacrawler_path = Path(mediacrawler_path)
+        else:
+            self.mediacrawler_path = Path(__file__).parent / "MediaCrawler"
         self.supported_platforms = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']
         self.crawl_stats = {}
-        
+
         # 确保MediaCrawler目录存在
         if not self.mediacrawler_path.exists():
             raise FileNotFoundError(f"MediaCrawler目录不存在: {self.mediacrawler_path}")
-        
+
         logger.info(f"初始化平台爬虫管理器，MediaCrawler路径: {self.mediacrawler_path}")
     
     def configure_mediacrawler_db(self):
@@ -261,13 +269,15 @@ postgres_db_config = postgresql_db_config
             is_postgresql = db_dialect in ("postgresql", "postgres")
             save_data_option = "postgres" if is_postgresql else "db"
             
-            # 构建命令
+            # 构建命令 — 关键参数通过 CLI 传递，不依赖 config 文件
             cmd = [
                 sys.executable, "main.py",
                 "--platform", platform,
                 "--lt", login_type,
                 "--type", "search",
-                "--save_data_option", save_data_option
+                "--keywords", ",".join(keywords),
+                "--headless", str(headless),
+                "--save_data_option", save_data_option,
             ]
             
             logger.info(f"执行命令: {' '.join(cmd)}")
@@ -352,7 +362,8 @@ postgres_db_config = postgresql_db_config
         return stats
     
     def run_multi_platform_crawl_by_keywords(self, keywords: List[str], platforms: List[str],
-                                            login_type: str = "qrcode", max_notes_per_keyword: int = 50) -> Dict:
+                                            login_type: str = "qrcode", max_notes_per_keyword: int = 50,
+                                            headless: bool = True) -> Dict:
         """
         基于关键词的多平台爬取 - 每个关键词在所有平台上都进行爬取
         
@@ -402,7 +413,7 @@ postgres_db_config = postgresql_db_config
             
             try:
                 # 一次性传递所有关键词给平台
-                result = self.run_crawler(platform, keywords, login_type, max_notes_per_keyword)
+                result = self.run_crawler(platform, keywords, login_type, max_notes_per_keyword, headless=headless)
                 
                 if result.get("success"):
                     total_stats["successful_tasks"] += len(keywords)

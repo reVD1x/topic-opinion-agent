@@ -121,6 +121,8 @@ async def save_creator(user_info: TiebaCreator):
 
     """
     local_db_item = user_info.model_dump()
+    local_db_item["follows"] = str(local_db_item.get("follows", 0))
+    local_db_item["fans"] = str(local_db_item.get("fans", 0))
     local_db_item["last_modify_ts"] = utils.get_current_timestamp()
     utils.logger.info(f"[store.tieba.save_creator] creator:{local_db_item}")
     await TieBaStoreFactory.create_store().store_creator(local_db_item)

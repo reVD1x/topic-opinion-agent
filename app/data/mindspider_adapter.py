@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -19,6 +22,22 @@ class MindSpiderAdapter:
     MAX_KEYWORDS = 3
     MAX_NOTES_PER_KEYWORD = 5
     CRAWL_TIMEOUT_SECONDS = 300  # 5 minutes
+
+    # Platform code → DB table name
+    PLATFORM_TABLE_MAP: dict[str, str] = {
+        "xhs": "xhs_note",
+        "dy": "douyin_aweme",
+        "ks": "kuaishou_video",
+        "bili": "bilibili_video",
+        "wb": "weibo_note",
+        "tieba": "tieba_note",
+        "zhihu": "zhihu_content",
+    }
+    # Platform code → display name
+    PLATFORM_CN_MAP: dict[str, str] = {
+        "xhs": "小红书", "dy": "抖音", "ks": "快手",
+        "bili": "B站", "wb": "微博", "tieba": "贴吧", "zhihu": "知乎",
+    }
 
     def __init__(self) -> None:
         project_root = Path(__file__).resolve().parents[2]
@@ -46,8 +65,9 @@ class MindSpiderAdapter:
         """
         Crawl platforms in real-time for *keywords* and return UnifiedDoc results.
 
+        Platforms are crawled in parallel via ThreadPoolExecutor.
         Safety: max 3 keywords, 5 notes/keyword, comments disabled, 5-min timeout.
-        On any failure, returns [] so the pipeline can continue with other sources.
+        Individual platform failures are logged but do not block other platforms.
         """
         if not self.enabled:
             return []
@@ -59,16 +79,99 @@ class MindSpiderAdapter:
             platforms = ["xhs"]
         max_notes = max(min(max_notes, self.MAX_NOTES_PER_KEYWORD), 1)
 
-        ok, msg = self._run_topic_search(keywords, platforms[0], max_notes)
-        if not ok:
-            self.last_log += f"\n[search failed] {msg}\n"
-            return []
+        all_docs: list[UnifiedDoc] = []
+        platform_counts: list[str] = []
+        log_parts: list[str] = []
 
-        return self._read_crawled_docs(keywords, max_notes)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(platforms)) as executor:
+            future_map: dict[concurrent.futures.Future, str] = {}
+            for platform in platforms:
+                future = executor.submit(self._crawl_one_platform, keywords, platform, max_notes)
+                future_map[future] = platform
 
-    def _run_topic_search(self, keywords: list[str], platform: str, max_notes: int) -> tuple[bool, str]:
-        """Call MindSpider helper script with strict limits.
-        Phase 1: cookie login (headless). If auth fails, Phase 2: qrcode (visible browser)."""
+            for future in concurrent.futures.as_completed(future_map):
+                platform = future_map[future]
+                try:
+                    docs, plog = future.result()
+                except Exception as exc:
+                    log_parts.append(f"\n[search failed · {platform}] {exc}\n")
+                    continue
+                log_parts.extend(plog)
+                cn = self.PLATFORM_CN_MAP.get(platform, platform)
+                platform_counts.append(f"{cn}:{len(docs)}条")
+                all_docs.extend(docs)
+
+        if platform_counts:
+            log_parts.append(f"\n爬取结果: {' | '.join(platform_counts)}\n")
+        self.last_log = "".join(log_parts)
+        return all_docs
+
+    def _create_isolated_mediacrawler(self, platform: str) -> tuple[Path, str]:
+        """Create a temp MediaCrawler tree with an isolated config/ dir.
+
+        Symlinks all files/dirs from the original except config/ (copied to
+        avoid race conditions). browser_data/ is symlinked so Playwright login
+        state (cookies) persists across sessions.
+        Returns (temp_mediacrawler_path, cleanup_root_dir).
+        """
+        src = self._module_root / "DeepSentimentCrawling" / "MediaCrawler"
+        tmp_root = Path(tempfile.mkdtemp(prefix=f"mc_{platform}_"))
+        dest = tmp_root / "MediaCrawler"
+        dest.mkdir()
+
+        for item in src.iterdir():
+            if item.name == "config":
+                shutil.copytree(item, dest / "config")
+            elif item.name == "browser_data":
+                (dest / item.name).symlink_to(item)
+            else:
+                (dest / item.name).symlink_to(item)
+
+        return dest, str(tmp_root)
+
+    @staticmethod
+    def _cleanup_singleton_locks(browser_data_dir: Path) -> None:
+        """Remove stale Chrome SingletonLock files that prevent browser launch."""
+        for lock_file in browser_data_dir.rglob("SingletonLock"):
+            try:
+                lock_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _crawl_one_platform(
+        self, keywords: list[str], platform: str, max_notes: int
+    ) -> tuple[list[UnifiedDoc], list[str]]:
+        """Run topic search + read docs for a single platform. Fully thread-safe.
+
+        Creates an isolated MediaCrawler copy so parallel runs do not race on
+        shared config files (base_config.py / db_config.py).
+        """
+        cn = self.PLATFORM_CN_MAP.get(platform, platform)
+        log_parts: list[str] = [f"[{cn}] Phase 1: Cookie login...\n"]
+
+        # Clean stale Chrome SingletonLock files from symlinked browser_data
+        orig_browser_data = self._module_root / "DeepSentimentCrawling" / "MediaCrawler" / "browser_data"
+        self._cleanup_singleton_locks(orig_browser_data)
+
+        mc_path, cleanup_root = self._create_isolated_mediacrawler(platform)
+        try:
+            ok, err = self._run_topic_search_isolated(
+                keywords, platform, max_notes, log_parts, mc_path,
+            )
+            if not ok:
+                log_parts.append(f"[{cn} search failed] {err}\n")
+                return [], log_parts
+            docs = self._read_crawled_docs(keywords, max_notes, platform=platform)
+            log_parts.append(f"[{cn}] 爬取完成: {len(docs)}条\n")
+            return docs, log_parts
+        finally:
+            shutil.rmtree(cleanup_root, ignore_errors=True)
+
+    def _run_topic_search_isolated(
+        self, keywords: list[str], platform: str, max_notes: int,
+        log_parts: list[str], mediacrawler_path: Path,
+    ) -> tuple[bool, str]:
+        """Run topic search against an isolated MediaCrawler copy."""
         helper = self._module_root / "mindspider_topic_search.py"
         if not helper.exists():
             return False, f"helper script not found: {helper}"
@@ -79,38 +182,48 @@ class MindSpiderAdapter:
             "--keywords", ",".join(keywords),
             "--platform", platform,
             "--max-notes", str(max_notes),
+            "--mediacrawler-path", str(mediacrawler_path),
         ]
 
-        # Phase 1: cookie login, headless
-        self.last_log = "[Phase 1] Cookie login (headless)...\n"
-        ok, err = self._exec_crawl(base_cmd + ["--login-type", "cookie", "--headless", "true"], env)
+        # Phase 1: cookie login, visible browser
+        ok, err = self._exec_crawl_to_log(
+            base_cmd + ["--login-type", "cookie", "--headless", "false"], env, log_parts,
+        )
         if ok:
             return True, "ok"
 
-        # Check if it's an auth failure
+        # Check if it's an auth failure — inspect both the parsed error and
+        # the full subprocess log (stdout + stderr), because the parsed err
+        # string may fall back to a generic "爬取失败" when the JSON response
+        # lacks an "error" field.
         err_lower = err.lower()
+        log_joined = "".join(log_parts).lower()
         is_auth_error = any(
-            tag in err_lower
-            for tag in ["datafetcherror", "pong", "login", "auth", "cookie"]
+            tag in err_lower or tag in log_joined
+            for tag in ["datafetcherror", "pong", "login", "auth", "cookie", "没有权限"]
         )
         if not is_auth_error:
             return False, err
 
         # Phase 2: QR code login with visible browser
-        self.last_log += (
+        # Clean stale SingletonLock in case Phase 1 Chrome was killed
+        self._cleanup_singleton_locks(mediacrawler_path / "browser_data")
+        log_parts.append(
             "\n[Phase 2] Cookie login failed, opening browser for QR code login.\n"
             "请在弹出的浏览器窗口中用小红书 App 扫描二维码登录。\n"
         )
-        return self._exec_crawl(
+        return self._exec_crawl_to_log(
             base_cmd + ["--login-type", "qrcode", "--headless", "false"],
             env,
-            timeout=180,  # 3 min for QR scan
+            log_parts,
+            timeout=180,
         )
 
-    def _exec_crawl(
-        self, cmd: list[str], env: dict[str, str], timeout: int | None = None
+    def _exec_crawl_to_log(
+        self, cmd: list[str], env: dict[str, str], log_parts: list[str],
+        timeout: int | None = None,
     ) -> tuple[bool, str]:
-        """Execute crawl subprocess and parse result."""
+        """Execute crawl subprocess, writing output to *log_parts* (thread-safe)."""
         if timeout is None:
             timeout = self.CRAWL_TIMEOUT_SECONDS
         try:
@@ -123,10 +236,10 @@ class MindSpiderAdapter:
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
-            self.last_log += "\n[timeout] Crawl exceeded time limit\n"
+            log_parts.append("\n[timeout] Crawl exceeded time limit\n")
             return False, "爬取超时"
 
-        self.last_log += f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}\n"
+        log_parts.append(f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}\n")
 
         # Parse the last JSON line from stdout
         for line in reversed(result.stdout.strip().splitlines()):
@@ -150,12 +263,16 @@ class MindSpiderAdapter:
         stderr_tail = stderr.strip()[-200:] if stderr.strip() else ""
         return False, stderr_tail or "爬取失败（无输出）"
 
-    def _read_crawled_docs(self, keywords: list[str], limit: int) -> list[UnifiedDoc]:
-        """After a successful crawl, read matching docs from platform tables."""
+    def _read_crawled_docs(self, keywords: list[str], limit: int, platform: str = "") -> list[UnifiedDoc]:
+        """After a successful crawl, read matching docs from platform tables.
+
+        When *platform* is given, only the corresponding DB table is queried.
+        """
+        table = self.PLATFORM_TABLE_MAP.get(platform, "")
         with session_scope() as session:
             from app.data.pg_repository import PgRepository
             repo = PgRepository(session)
-            return repo._load_platform_docs_by_keywords(keywords, limit=limit * len(keywords))
+            return repo._load_platform_docs_by_keywords(keywords, limit=limit * len(keywords), platform_table=table)
 
     # ------------------------------------------------------------------
     # Full workflow (daily cron / background use)

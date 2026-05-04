@@ -57,12 +57,12 @@ async def update_kuaishou_video(video_item: Dict):
         return
     user_info = video_item.get("author", {})
     save_content_item = {
-        "video_id": video_id,
+        "video_id": str(video_id),
         "video_type": str(video_item.get("type")),
         "title": photo_info.get("caption", "")[:500],
         "desc": photo_info.get("caption", "")[:500],
         "create_time": photo_info.get("timestamp"),
-        "user_id": user_info.get("id"),
+        "user_id": str(user_info.get("id")),
         "nickname": user_info.get("name"),
         "avatar": user_info.get("headerUrl", ""),
         "liked_count": str(photo_info.get("realLikeCount")),
@@ -97,7 +97,7 @@ async def update_ks_video_comment(video_id: str, comment_item: Dict):
         "video_id": video_id,
         "content": comment_item.get("content"),
         # V2: author_id, Old: authorId
-        "user_id": comment_item.get("author_id") or comment_item.get("authorId"),
+        "user_id": str(comment_item.get("author_id") or comment_item.get("authorId")),
         # V2: author_name, Old: authorName
         "nickname": comment_item.get("author_name") or comment_item.get("authorName"),
         "avatar": comment_item.get("headurl"),

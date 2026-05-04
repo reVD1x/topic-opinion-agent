@@ -18,8 +18,8 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 # 基础配置
-PLATFORM = "xhs"  # 平台，xhs | dy | ks | bili | wb | tieba | zhihu
-KEYWORDS = "中国航母,AI,日本拥核"  # 关键词搜索配置，以英文逗号分隔
+PLATFORM = "zhihu"  # 平台，xhs | dy | ks | bili | wb | tieba | zhihu
+KEYWORDS = "国乒男团2比3瑞典,国乒男团两连败,2026五一档总票房已破5亿,黄灿灿,blackpink都没这么累,国乒男团小组赛一胜两负,这才是减脂餐的真正物价,国乒,白鹿被孟子义说挂相,国乒女团心系男团战况"  # 关键词搜索配置，以英文逗号分隔
 LOGIN_TYPE = "cookie"
 COOKIES = ""
 CRAWLER_TYPE = "search"  # 爬取类型，search(关键词搜索) | detail(帖子详情)| creator(创作者主页数据)
@@ -78,7 +78,7 @@ USER_DATA_DIR = "%s_user_data_dir"  # %s will be replaced by platform name
 START_PAGE = 1
 
 # 爬取视频/帖子的数量控制
-CRAWLER_MAX_NOTES_COUNT = 3
+CRAWLER_MAX_NOTES_COUNT = 10
 
 # 并发爬虫数量控制
 MAX_CONCURRENCY_NUM = 1

@@ -149,7 +149,7 @@ async def update_weibo_note_comment(note_id: str, comment_item: Dict):
         "comment_like_count": str(comment_item.get("like_count", 0)),
         "last_modify_ts": utils.get_current_timestamp(),
         "ip_location": comment_item.get("source", "").replace("来自", ""),
-        "parent_comment_id": comment_item.get("rootid", ""),
+        "parent_comment_id": str(comment_item.get("rootid", "")),
 
         # 用户信息
         "user_id": str(user_info.get("id")),
@@ -193,8 +193,8 @@ async def save_creator(user_id: str, user_info: Dict):
         'avatar': user_info.get('avatar_hd'),
         'desc': user_info.get('description'),
         'ip_location': user_info.get("source", "").replace("来自", ""),
-        'follows': user_info.get('follow_count', ''),
-        'fans': user_info.get('followers_count', ''),
+        'follows': str(user_info.get('follow_count', '')),
+        'fans': str(user_info.get('followers_count', '')),
         'tag_list': '',
         "last_modify_ts": utils.get_current_timestamp(),
     }

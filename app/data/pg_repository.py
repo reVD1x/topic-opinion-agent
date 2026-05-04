@@ -541,13 +541,21 @@ class PgRepository:
         rows = self._session.execute(sql, params).mappings()
         return [self._to_news_doc_by_kw(row) for row in rows]
 
-    def _load_platform_docs_by_keywords(self, keywords: list[str], limit: int = 30) -> list[UnifiedDoc]:
-        """Search platform tables directly by keyword matching on content fields."""
+    def _load_platform_docs_by_keywords(self, keywords: list[str], limit: int = 30, platform_table: str = "") -> list[UnifiedDoc]:
+        """Search platform tables directly by keyword matching on content fields.
+
+        When *platform_table* is given, only that specific table is queried.
+        """
         if not keywords:
             return []
-        legacy_tables = [t for t in self._platform_tables if self._table_exists(t)]
-        if not legacy_tables:
-            return []
+        if platform_table:
+            if not self._table_exists(platform_table):
+                return []
+            legacy_tables = [platform_table]
+        else:
+            legacy_tables = [t for t in self._platform_tables if self._table_exists(t)]
+            if not legacy_tables:
+                return []
 
         conditions = " OR ".join(
             [

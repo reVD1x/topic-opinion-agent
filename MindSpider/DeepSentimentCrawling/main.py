@@ -27,10 +27,11 @@ class DeepSentimentCrawling:
         self.platform_crawler = PlatformCrawler()
         self.supported_platforms = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']
     
-    def run_daily_crawling(self, target_date: date = None, platforms: List[str] = None, 
-                          max_keywords_per_platform: int = 50, 
+    def run_daily_crawling(self, target_date: date = None, platforms: List[str] = None,
+                          max_keywords_per_platform: int = 50,
                           max_notes_per_platform: int = 50,
-                          login_type: str = "qrcode") -> Dict:
+                          login_type: str = "qrcode",
+                          headless: bool = True) -> Dict:
         """
         执行每日爬取任务
         
@@ -76,7 +77,7 @@ class DeepSentimentCrawling:
         # 3. 执行全平台关键词爬取
         print(f"\n🔄 开始全平台关键词爬取...")
         crawl_results = self.platform_crawler.run_multi_platform_crawl_by_keywords(
-            keywords, platforms, login_type, max_notes_per_platform
+            keywords, platforms, login_type, max_notes_per_platform, headless=headless
         )
         
         # 4. 生成最终报告
@@ -98,7 +99,8 @@ class DeepSentimentCrawling:
     
     def run_platform_crawling(self, platform: str, target_date: date = None,
                              max_keywords: int = 50, max_notes: int = 50,
-                             login_type: str = "qrcode") -> Dict:
+                             login_type: str = "qrcode",
+                             headless: bool = True) -> Dict:
         """
         执行单个平台的爬取任务
         
@@ -133,7 +135,7 @@ class DeepSentimentCrawling:
         
         # 执行爬取
         result = self.platform_crawler.run_crawler(
-            platform, keywords, login_type, max_notes
+            platform, keywords, login_type, max_notes, headless=headless
         )
         
         return result
@@ -212,7 +214,9 @@ def main():
     parser.add_argument("--days", type=int, default=7, help="查看最近几天的话题 (默认: 7)")
     parser.add_argument("--guide", action="store_true", help="显示平台使用指南")
     parser.add_argument("--test", action="store_true", help="测试模式 (少量数据)")
-    
+    parser.add_argument("--headless", type=str, default="true",
+                       help="无头模式 true/false (默认: true)")
+
     args = parser.parse_args()
     
     # 解析日期
@@ -223,6 +227,8 @@ def main():
         except ValueError:
             print("❌ 日期格式错误，请使用 YYYY-MM-DD 格式")
             return
+
+    headless = args.headless.lower() == "true"
     
     # 创建爬取实例
     crawler = DeepSentimentCrawling()
@@ -247,8 +253,8 @@ def main():
         # 单平台爬取
         if args.platform:
             result = crawler.run_platform_crawling(
-                args.platform, target_date, args.max_keywords, 
-                args.max_notes, args.login_type
+                args.platform, target_date, args.max_keywords,
+                args.max_notes, args.login_type, headless=headless
             )
             
             if result['success']:
@@ -261,8 +267,8 @@ def main():
         # 多平台爬取
         platforms = args.platforms if args.platforms else None
         result = crawler.run_daily_crawling(
-            target_date, platforms, args.max_keywords, 
-            args.max_notes, args.login_type
+            target_date, platforms, args.max_keywords,
+            args.max_notes, args.login_type, headless=headless
         )
         
         if result['success']:

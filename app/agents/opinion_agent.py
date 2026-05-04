@@ -73,28 +73,32 @@ class OpinionAgent:
 
         rsp = self.llm.chat_json(
             system_prompt=(
-                "You are a Chinese public opinion analyst. Follow this reasoning process:\n\n"
-                "1. Read all documents and identify the main claims, attitudes, and arguments.\n"
-                "2. Group similar stances into opinion camps: supports (favorable), opposes (critical), "
-                "neutrals (factual reporting), controversy_points (conflicting views or heated debate).\n"
-                "3. For each opinion point, trace back to which document IDs provide the evidence. "
-                "A claim without a supporting document ID must be dropped.\n"
-                "4. Prioritize quality over quantity — max 5 opinion points per camp.\n\n"
-                "Each document line starts with [number]: content. Use those numbers as doc_id "
-                "to populate the evidence_ids for each opinion point.\n\n"
-                "Output JSON format:\n"
+                "你是一个中文舆情观点分析师。请按照以下步骤进行推理：\n\n"
+                "核心原则：支持/反对立场必须以【话题主体】为参照系。\n"
+                "- 文档中的观点对话题主体有利、赞赏、维护 → supports（支持）\n"
+                "- 文档中的观点对话题主体不利、批评、攻击 → opposes（反对）\n"
+                "- 文档仅做事实转述、无明显立场，或立场与话题主体无关 → neutrals（中立）\n"
+                "- 多种对立观点激烈碰撞、争议焦点明确 → controversy_points（争议焦点）\n\n"
+                "注意：不要被文中提及的其他不相干话题或主体干扰。\n\n"
+                "分析步骤：\n"
+                "1. 阅读所有文档，识别其中的主要观点、态度和论点。\n"
+                "2. 将相似立场归入同一观点阵营。每个阵营最多5条观点，优先选择质量最高的。\n"
+                "3. 每条观点必须有证据支撑——请填写 evidence_ids 引用对应文档的编号。"
+                "没有文档支撑的观点必须丢弃。\n"
+                "4. 每条输入行以 [数字]: 内容 开头，请使用这些数字作为 evidence_ids。\n\n"
+                "输出JSON格式：\n"
                 '{"supports": [{content: string, evidence_ids: [string], reasoning: string}, ...],\n'
                 ' "opposes": [{content: string, evidence_ids: [string], reasoning: string}, ...],\n'
                 ' "neutrals": [{content: string, evidence_ids: [string], reasoning: string}, ...],\n'
                 ' "controversy_points": [{content: string, evidence_ids: [string], reasoning: string}, ...]}\n\n'
-                "Rules:\n"
-                "- Each opinion point should be a concise 1-sentence claim in Chinese.\n"
-                "- evidence_ids MUST reference actual [number] values from the input.\n"
-                "- Include a 'reasoning' field in each output item explaining your analysis.\n"
-                "- Max 5 opinion points per camp.\n"
-                "- If no relevant documents exist for a camp, return an empty list."
+                "规则：\n"
+                "- 每条观点用一句话概括（中文），简洁明确。\n"
+                "- evidence_ids 必须严格使用输入行的 [数字] 编号（如 \"0\"、\"1\"），不加括号。\n"
+                "- 每条观点输出项必须包含 reasoning 字段，简要解释推理过程。\n"
+                "- 每个阵营最多5条观点。\n"
+                "- 若某阵营缺少相关文档，返回空列表 []。"
             ),
-            user_prompt=f"topic={topic_id}\n\n{joined}",
+            user_prompt=f"话题：{topic_id}\n\n{joined}",
         )
 
         if not isinstance(rsp, dict):
@@ -170,7 +174,15 @@ class OpinionAgent:
             raw_ids = item.get("evidence_ids", [])
             if not isinstance(raw_ids, list):
                 raw_ids = []
-            evidence_ids = [id_map[str(eid)] for eid in raw_ids if str(eid) in id_map]
+            evidence_ids: list[str] = []
+            for eid in raw_ids:
+                # Normalize: strip brackets, whitespace; handle both str and int
+                normalized = str(eid).strip().lstrip("[").rstrip("]").strip()
+                real_id = id_map.get(normalized)
+                if real_id:
+                    evidence_ids.append(real_id)
+                else:
+                    logger.debug("观点分析：evidence_id=%s 无法映射到证据文档，已跳过", str(eid)[:40])
             if not evidence_ids:
                 continue
             reasoning = str(item.get("reasoning", "")).strip()

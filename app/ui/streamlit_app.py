@@ -247,6 +247,7 @@ def _run_analysis(
     enable_forecast: bool,
     use_external: bool,
     use_mindspider: bool,
+    mindspider_platforms: list[str],
     progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[TopicReport, list[str], str, list[AgentStepLog]]:
     pipeline = TopicAnalysisPipeline()
@@ -256,6 +257,7 @@ def _run_analysis(
         enable_forecast=enable_forecast,
         use_external=use_external,
         use_mindspider=use_mindspider,
+        mindspider_platforms=mindspider_platforms,
         progress_callback=progress_callback,
     )
 
@@ -281,9 +283,16 @@ def main() -> None:
         enable_forecast = st.checkbox("启用趋势预测", value=True)
         use_external = st.checkbox("启用外部检索（博查/Tavily）", value=True)
         use_mindspider = st.checkbox(
-            "启用实时爬取（MindSpider · 小红书）",
+            "启用实时爬取（MindSpider）",
             value=False,
-            help="实时搜索小红书获取相关帖文。限制：最多 3 个关键词 × 5 条笔记，不抓评论，预计 2-3 分钟。",
+            help="实时搜索各平台获取相关帖文。限制：最多 3 个关键词 × 5 条笔记，不抓评论，Cookie 登录失败会自动弹出扫码窗口。",
+        )
+        mindspider_platforms: list[str] = st.multiselect(
+            "爬取平台",
+            options=["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"],
+            format_func=lambda p: {"xhs": "小红书", "dy": "抖音", "ks": "快手", "bili": "B站", "wb": "微博", "tieba": "贴吧", "zhihu": "知乎"}.get(p, p),
+            default=["xhs"],
+            help="选择要实时爬取的平台。多个平台会依次爬取，预计每个平台 2-3 分钟。",
         )
         if "analysis_triggered" not in st.session_state:
             st.session_state["analysis_triggered"] = False
@@ -355,6 +364,7 @@ def main() -> None:
                     enable_forecast=enable_forecast,
                     use_external=use_external,
                     use_mindspider=use_mindspider,
+                    mindspider_platforms=mindspider_platforms,
                     progress_callback=_update_progress,
                 )
                 st.session_state["report"] = report

@@ -112,20 +112,20 @@ async def update_bilibili_video_comment(video_id: str, comment_item: Dict):
     parent_comment_id = str(comment_item.get("parent", 0))
     content: Dict = comment_item.get("content")
     user_info: Dict = comment_item.get("member")
-    like_count: int = comment_item.get("like", 0)
+    like_count = comment_item.get("like", 0)
     save_comment_item = {
         "comment_id": comment_id,
         "parent_comment_id": parent_comment_id,
         "create_time": comment_item.get("ctime"),
         "video_id": str(video_id),
         "content": content.get("message"),
-        "user_id": user_info.get("mid"),
+        "user_id": str(user_info.get("mid")),
         "nickname": user_info.get("uname"),
         "sex": user_info.get("sex"),
         "sign": user_info.get("sign"),
         "avatar": user_info.get("avatar"),
         "sub_comment_count": str(comment_item.get("rcount", 0)),
-        "like_count": like_count,
+        "like_count": str(like_count),
         "last_modify_ts": utils.get_current_timestamp(),
     }
     utils.logger.info(f"[store.bilibili.update_bilibili_video_comment] Bilibili video comment: {comment_id}, content: {save_comment_item.get('content')}")
@@ -218,7 +218,7 @@ async def update_bilibili_creator_contact(creator_info: Dict, fan_info: Dict):
 async def update_bilibili_creator_dynamic(creator_info: Dict, dynamic_info: Dict):
     save_dynamic_item = {
         "dynamic_id": dynamic_info["dynamic_id"],
-        "user_id": creator_info["id"],
+        "user_id": str(creator_info["id"]),
         "user_name": creator_info["name"],
         "text": dynamic_info["text"],
         "type": dynamic_info["type"],
