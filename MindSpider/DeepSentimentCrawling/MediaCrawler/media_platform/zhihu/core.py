@@ -21,6 +21,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import os
+from urllib.parse import quote
 # import random  # Removed as we now use fixed config.CRAWLER_MAX_SLEEP_SEC intervals
 from asyncio import Task
 from typing import Dict, List, Optional, Tuple, cast
@@ -121,8 +122,9 @@ class ZhihuCrawler(AbstractCrawler):
             utils.logger.info(
                 "[ZhihuCrawler.start] Zhihu navigating to search page to get search page cookies, this process takes about 5 seconds"
             )
+            warmup_query = config.KEYWORDS.split(",")[0].strip() if config.KEYWORDS else "python"
             await self.context_page.goto(
-                f"{self.index_url}/search?q=python&search_source=Guess&utm_content=search_hot&type=content"
+                f"{self.index_url}/search?q={warmup_query}&search_source=Guess&utm_content=search_hot&type=content"
             )
             await asyncio.sleep(5)
             await self.zhihu_client.update_cookies(browser_context=self.browser_context)
@@ -403,7 +405,7 @@ class ZhihuCrawler(AbstractCrawler):
                 "accept-language": "zh-CN,zh;q=0.9",
                 "cookie": cookie_str,
                 "priority": "u=1, i",
-                "referer": "https://www.zhihu.com/search?q=python&time_interval=a_year&type=content",
+                "referer": f"https://www.zhihu.com/search?q={quote(config.KEYWORDS.split(',')[0].strip()) if config.KEYWORDS else 'python'}&time_interval=a_year&type=content",
                 "user-agent": self.user_agent,
                 "x-api-version": "3.0.91",
                 "x-app-za": "OS=Web",

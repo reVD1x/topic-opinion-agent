@@ -80,28 +80,18 @@ class BilibiliLogin(AbstractLogin):
     async def login_by_qrcode(self):
         """login bilibili website and keep webdriver login state"""
         utils.logger.info("[BilibiliLogin.login_by_qrcode] Begin login bilibili by qrcode ...")
+        # Check if already logged in first (e.g. valid cookies from CDP profile).
+        if await self.check_login_state():
+            utils.logger.info("[BilibiliLogin.login_by_qrcode] Already logged in, skipping QR code.")
+            return
 
-        # click login button
-        login_button_ele = self.context_page.locator(
-            "xpath=//div[@class='right-entry__outside go-login-btn']//div"
-        )
-        await login_button_ele.click()
-        await asyncio.sleep(1)
-        # find login qrcode
-        qrcode_img_selector = "//div[@class='login-scan-box']//img"
-        base64_qrcode_img = await utils.find_login_qrcode(
-            self.context_page,
-            selector=qrcode_img_selector
-        )
-        if not base64_qrcode_img:
-            utils.logger.info("[BilibiliLogin.login_by_qrcode] login failed , have not found qrcode please check ....")
-            sys.exit()
+        # Navigate to bilibili login page so the user can scan QR code directly
+        # from the visible browser window (no element extraction — avoids
+        # breakage when bilibili changes page structure).
+        await self.context_page.goto("https://passport.bilibili.com/login")
+        utils.logger.info("[BilibiliLogin.login_by_qrcode] 请在浏览器窗口中扫码登录B站 ...")
 
-        # show login qrcode
-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
-
-        utils.logger.info(f"[BilibiliLogin.login_by_qrcode] Waiting for scan code login, remaining time is 20s")
+        utils.logger.info(f"[BilibiliLogin.login_by_qrcode] Waiting for scan code login, remaining time is 600s")
         try:
             await self.check_login_state()
         except RetryError:

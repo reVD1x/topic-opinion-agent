@@ -164,16 +164,18 @@ postgres_db_config = postgresql_db_config
     def create_base_config(self, platform: str, keywords: List[str],
                           crawler_type: str = "search", max_notes: int = 50,
                           enable_comments: bool = True,
-                          headless: bool = True) -> bool:
+                          headless: bool = True,
+                          max_comments: int = 20) -> bool:
         """
         创建MediaCrawler的基础配置
-        
+
         Args:
             platform: 平台名称
             keywords: 关键词列表
             crawler_type: 爬取类型
             max_notes: 最大爬取数量
-        
+            max_comments: 每篇笔记最大评论抓取数
+
         Returns:
             是否配置成功
         """
@@ -210,7 +212,7 @@ postgres_db_config = postgresql_db_config
                 elif line.startswith('ENABLE_GET_COMMENTS = '):
                     new_lines.append(f'ENABLE_GET_COMMENTS = {enable_comments}')
                 elif line.startswith('CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = '):
-                    new_lines.append('CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = 20')
+                    new_lines.append(f'CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = {max_comments}')
                 elif line.startswith('HEADLESS = '):
                     new_lines.append(f'HEADLESS = {headless}')
                 else:
@@ -230,16 +232,18 @@ postgres_db_config = postgresql_db_config
     def run_crawler(self, platform: str, keywords: List[str],
                    login_type: str = "qrcode", max_notes: int = 50,
                    enable_comments: bool = True,
-                   headless: bool = True) -> Dict:
+                   headless: bool = True,
+                   max_comments: int = 20) -> Dict:
         """
         运行爬虫
-        
+
         Args:
             platform: 平台名称
             keywords: 关键词列表
             login_type: 登录方式
             max_notes: 最大爬取数量
-        
+            max_comments: 每篇笔记最大评论抓取数
+
         Returns:
             爬取结果统计
         """
@@ -261,7 +265,7 @@ postgres_db_config = postgresql_db_config
                 return {"success": False, "error": "数据库配置失败"}
             
             # 创建基础配置
-            if not self.create_base_config(platform, keywords, "search", max_notes, enable_comments=enable_comments, headless=headless):
+            if not self.create_base_config(platform, keywords, "search", max_notes, enable_comments=enable_comments, headless=headless, max_comments=max_comments):
                 return {"success": False, "error": "基础配置创建失败"}
             
             # 判断数据库类型，确定 save_data_option

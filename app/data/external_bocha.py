@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import requests
@@ -19,19 +20,36 @@ class ExternalBocha:
         response.raise_for_status()
         data = response.json()
 
-        items = data.get("items", []) if isinstance(data, dict) else []
-        return [self._to_doc(topic_id, i) for i in items if i.get("content")]
+        # Bocha API returns {messages: [{type: "source", content: "{value: [...]}"}]}
+        results: list[dict[str, Any]] = []
+        for msg in data.get("messages", []) or []:
+            if msg.get("type") != "source":
+                continue
+            raw_content = msg.get("content", "")
+            if isinstance(raw_content, str):
+                try:
+                    raw_content = json.loads(raw_content)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            for item in raw_content.get("value", []) or []:
+                if item.get("name") or item.get("snippet"):
+                    results.append(item)
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
+        return [self._to_doc(topic_id, r) for r in results]
 
     @staticmethod
     def _to_doc(topic_id: str, item: dict[str, Any]) -> UnifiedDoc:
-        raw_id = str(item.get("id") or item.get("url") or item.get("title") or "bocha")
+        raw_id = str(item.get("id") or item.get("url") or item.get("name") or "bocha")
         return UnifiedDoc(
             doc_id=f"bocha:{raw_id}",
             topic_id=topic_id,
             source_type="bocha",
             source_name="bocha",
-            title=item.get("title"),
-            content=item.get("content", ""),
+            title=item.get("name"),
+            content=item.get("snippet") or item.get("summary", ""),
             url=item.get("url"),
             author=item.get("author"),
             credibility_hint="external",

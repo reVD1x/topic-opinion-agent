@@ -30,6 +30,8 @@ class RiskResult(BaseModel):
     risk_level: Literal["low", "medium", "high"]
     triggers: list[str]
     evidence_ids: list[str]
+    time_sensitivity: Literal["immediate", "short_term", "long_term"] = "short_term"
+    time_rationale: str = ""
 
 
 class ForecastResult(BaseModel):

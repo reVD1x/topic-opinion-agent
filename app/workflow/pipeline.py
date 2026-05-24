@@ -157,11 +157,8 @@ class TopicAnalysisPipeline:
                 db_topic_key = resolved.resolved_key
                 if resolved.matched_by in ("exact", "exact_any_date", "partial"):
                     analysis_topic_id = resolved.resolved_key
-                if resolved.matched_by == "keyword":
-                    fallback_kws = [topic_id] + repo.get_topic_keywords(db_topic_key)
-                    mindspider_kws = [topic_id] + repo.get_topic_keywords(db_topic_key)[:2]
-                else:
-                    fallback_kws = [topic_id]
+                mindspider_kws = [topic_id]
+                fallback_kws = [topic_id]
                 docs = repo.load_topic_evidence(db_topic_key, target_date, fallback_keywords=fallback_kws)
                 cb({"ts": "", "msg": f"数据库加载 {len(docs)} 条"})
 
@@ -170,29 +167,29 @@ class TopicAnalysisPipeline:
                         f"auto_matched: 输入[{topic_id}] -> 匹配[{analysis_topic_id}] (score={resolved.score:.2f})"
                     )
 
+        if use_mindspider:
+            try:
+                cb({"ts": "", "msg": f"MindSpider 爬取中 ({', '.join(mindspider_platforms)})…"})
+                mindspider_docs = self.mindspider.search(
+                    keywords=mindspider_kws[:3],
+                    platforms=mindspider_platforms,
+                )
+                docs.extend(mindspider_docs)
+                # Sync crawled docs to platform_content with topic tags
+                if mindspider_docs:
+                    with session_scope() as session:
+                        repo2 = PgRepository(session)
+                        inserted = repo2.insert_platform_content(
+                            mindspider_docs,
+                            topic_id=analysis_topic_id,
+                            topic_name=topic_id,
+                            keywords=mindspider_kws[:3],
+                        )
+                        cb({"ts": "", "msg": f"同步入库 {inserted}/{len(mindspider_docs)} 条"})
+            except Exception as exc:
+                warnings.append(f"mindspider_failed:{exc}")
+                cb({"ts": "", "msg": f"MindSpider 失败: {exc}"})
         if use_external:
-            if use_mindspider:
-                try:
-                    cb({"ts": "", "msg": f"MindSpider 爬取中 ({', '.join(mindspider_platforms)})…"})
-                    mindspider_docs = self.mindspider.search(
-                        keywords=mindspider_kws[:3],
-                        platforms=mindspider_platforms,
-                    )
-                    docs.extend(mindspider_docs)
-                    # Sync crawled docs to platform_content with topic tags
-                    if mindspider_docs:
-                        with session_scope() as session:
-                            repo2 = PgRepository(session)
-                            inserted = repo2.insert_platform_content(
-                                mindspider_docs,
-                                topic_id=analysis_topic_id,
-                                topic_name=topic_id,
-                                keywords=mindspider_kws[:3],
-                            )
-                            cb({"ts": "", "msg": f"同步入库 {inserted}/{len(mindspider_docs)} 条"})
-                except Exception as exc:
-                    warnings.append(f"mindspider_failed:{exc}")
-                    cb({"ts": "", "msg": f"MindSpider 失败: {exc}"})
             try:
                 if settings.bocha_enabled:
                     cb({"ts": "", "msg": "博查检索中…"})

@@ -81,25 +81,18 @@ class ZhiHuLogin(AbstractLogin):
     async def login_by_qrcode(self):
         """login zhihu website and keep webdriver login state"""
         utils.logger.info("[ZhiHu.login_by_qrcode] Begin login zhihu by qrcode ...")
-        qrcode_img_selector = "canvas.Qrcode-qrcode"
-        # find login qrcode
-        base64_qrcode_img = await utils.find_qrcode_img_from_canvas(
-            self.context_page,
-            canvas_selector=qrcode_img_selector
-        )
-        if not base64_qrcode_img:
-            utils.logger.info("[ZhiHu.login_by_qrcode] login failed , have not found qrcode please check ....")
-            if not base64_qrcode_img:
-                sys.exit()
+        # Check if already logged in first (e.g. valid cookies from CDP profile).
+        if await self.check_login_state():
+            utils.logger.info("[ZhiHu.login_by_qrcode] Already logged in, skipping QR code.")
+            return
 
-        # show login qrcode
-        # fix issue #12
-        # we need to use partial function to call show_qrcode function and run in executor
-        # then current asyncio event loop will not be blocked
-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
+        # Navigate to zhihu signin page so the user can scan QR code directly
+        # from the visible browser window (no canvas extraction — avoids
+        # breakage when zhihu changes page structure).
+        await self.context_page.goto("https://www.zhihu.com/signin")
+        utils.logger.info("[ZhiHu.login_by_qrcode] 请在浏览器窗口中扫码登录知乎 ...")
 
-        utils.logger.info(f"[ZhiHu.login_by_qrcode] waiting for scan code login, remaining time is 120s")
+        utils.logger.info(f"[ZhiHu.login_by_qrcode] waiting for scan code login, remaining time is 600s")
         try:
             await self.check_login_state()
 

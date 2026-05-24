@@ -91,11 +91,17 @@ class PgRepository:
     ) -> list[UnifiedDoc]:
         news_docs = self._load_news_docs(topic_key, target_date)
         platform_docs = self._load_platform_docs(topic_key, target_date)
+
+        # Always try keyword fallback for platform data when exact topic match
+        # yields nothing — platform tables store source_keyword not topic_id.
+        if not platform_docs and fallback_keywords:
+            platform_docs = self._load_platform_docs_by_keywords(fallback_keywords, limit=200)
+
         docs = news_docs + platform_docs
 
-        if not docs and fallback_keywords:
-            docs = self._load_news_docs_by_keywords(fallback_keywords, limit=30)
-            docs += self._load_platform_docs_by_keywords(fallback_keywords, limit=30)
+        # Fallback for news: only when nothing found at all
+        if not news_docs and fallback_keywords:
+            docs += self._load_news_docs_by_keywords(fallback_keywords, limit=200)
 
         return docs
 
@@ -483,6 +489,7 @@ class PgRepository:
                 WHERE (
                     COALESCE(j ->> 'topic_id', j ->> 'topic', j ->> 'topic_name') = :topic_key
                     OR COALESCE(j ->> 'topic_name', j ->> 'topic') = :topic_key
+                    OR COALESCE(j ->> 'source_keyword', j ->> 'keyword') = :topic_key
                 )
                 {date_filter}
                 """
@@ -562,6 +569,7 @@ class PgRepository:
                 "LOWER(COALESCE(j ->> 'title', '')) LIKE :kw" + str(i)
                 + " OR LOWER(COALESCE(j ->> 'desc', '')) LIKE :kw" + str(i)
                 + " OR LOWER(COALESCE(j ->> 'content', '')) LIKE :kw" + str(i)
+                + " OR LOWER(COALESCE(j ->> 'source_keyword', '')) LIKE :kw" + str(i)
                 for i in range(len(keywords))
             ]
         )
@@ -573,8 +581,6 @@ class PgRepository:
         per_table = max(limit, 10)
 
         for table_name in legacy_tables:
-            if len(results) >= limit:
-                break
             sql = text(
                 f"""
                 SELECT
@@ -595,10 +601,8 @@ class PgRepository:
                 if doc.doc_id not in seen_ids:
                     seen_ids.add(doc.doc_id)
                     results.append(doc)
-                if len(results) >= limit:
-                    break
 
-        return results
+        return results[:limit]
 
     @staticmethod
     def _to_news_doc_by_kw(row: Any) -> UnifiedDoc:

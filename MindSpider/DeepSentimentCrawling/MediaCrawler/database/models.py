@@ -204,7 +204,7 @@ class KuaishouVideoComment(Base):
     avatar = Column(Text)
     add_ts = Column(BigInteger)
     last_modify_ts = Column(BigInteger)
-    comment_id = Column(String(255), index=True)
+    comment_id = Column(BigInteger, index=True)
     video_id = Column(String(255), index=True)
     content = Column(Text)
     create_time = Column(BigInteger)

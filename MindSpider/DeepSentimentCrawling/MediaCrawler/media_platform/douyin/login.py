@@ -123,18 +123,17 @@ class DouYinLogin(AbstractLogin):
 
     async def login_by_qrcode(self):
         utils.logger.info("[DouYinLogin.login_by_qrcode] Begin login douyin by qrcode...")
-        qrcode_img_selector = "xpath=//div[@id='animate_qrcode_container']//img"
-        base64_qrcode_img = await utils.find_login_qrcode(
-            self.context_page,
-            selector=qrcode_img_selector
-        )
-        if not base64_qrcode_img:
-            utils.logger.info("[DouYinLogin.login_by_qrcode] login qrcode not found please confirm ...")
-            sys.exit()
+        # Check if already logged in first (e.g. valid cookies from CDP profile).
+        if await self.check_login_state():
+            utils.logger.info("[DouYinLogin.login_by_qrcode] Already logged in, skipping QR code.")
+            return
 
-        partial_show_qrcode = functools.partial(utils.show_qrcode, base64_qrcode_img)
-        asyncio.get_running_loop().run_in_executor(executor=None, func=partial_show_qrcode)
-        await asyncio.sleep(2)
+        # Navigate to douyin login page so the user can scan QR code directly
+        # from the visible browser window (no element extraction — avoids
+        # breakage when douyin changes page structure).
+        await self.context_page.goto("https://www.douyin.com/")
+        utils.logger.info("[DouYinLogin.login_by_qrcode] 请在浏览器窗口中扫码登录抖音 ...")
+        await self.check_login_state()
 
     async def login_by_mobile(self):
         utils.logger.info("[DouYinLogin.login_by_mobile] Begin login douyin by mobile ...")

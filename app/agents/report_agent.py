@@ -143,6 +143,8 @@ class ReportAgent:
                 "risk_level": risk.risk_level,
                 "trigger_count": len(risk.triggers),
                 "evidence_count": len(risk.evidence_ids),
+                "time_sensitivity": risk.time_sensitivity,
+                "time_rationale": risk.time_rationale,
             },
             "forecast": (
                 {
@@ -222,6 +224,8 @@ class ReportAgent:
 
         risk_label = to_cn(RISK_LEVEL_MAP, risk.risk_level)
         trigger_list = "、".join(risk.triggers[:5]) if risk.triggers else "未发现明显触发词"
+        time_sensitivity_map = {"immediate": "即刻（数小时至数天）", "short_term": "短期（数周至数月）", "long_term": "长期（持续性背景风险）"}
+        time_label = time_sensitivity_map.get(risk.time_sensitivity, "短期")
         sources = "、".join(f"{k}({v})" for k, v in sorted(source_distribution.items(), key=lambda x: x[1], reverse=True)[:5])
 
         context = {
@@ -234,6 +238,8 @@ class ReportAgent:
             "controversy": [op.content for op in opinions.controversy_points[:5]] if opinions.controversy_points else ["无"],
             "risk_level": risk_label,
             "risk_triggers": trigger_list,
+            "risk_time_sensitivity": time_label,
+            "risk_time_rationale": risk.time_rationale,
             "forecast": (
                 f"趋势{to_cn(TREND_MAP, forecast.trend_judgement)}，不确定性{to_cn(UNCERTAINTY_MAP, forecast.uncertainty)}"
                 if forecast
@@ -250,7 +256,8 @@ class ReportAgent:
                 "1. 话题扫描 — 审视话题概况、样本总量与来源分布，判断舆论场规模与多样性。\n"
                 "2. 情感诊断 — 分析正/中/负情感比例，判断整体舆论基调及其可能原因。\n"
                 "3. 观点梳理 — 提炼支持方与反对方的核心论点，识别争议焦点与共识区域。\n"
-                "4. 风险评估 — 结合触发因素与观点对立程度，评估当前风险等级的现实含义。\n"
+                "4. 风险评估 — 结合触发因素、观点对立程度与时间紧迫性，评估当前风险等级的现实含义。"
+                "重点着眼于短期（数日至数周内）可能爆发的舆情事件，区分即刻威胁与长期背景噪音。\n"
                 "5. 趋势预判 — 基于现有信号与不确定性，做出短期走向判断。\n\n"
                 "完成分析后，撰写一段350-500字的中文综合总结，涵盖以上五个维度。"
                 "语言精炼专业，直接给出总结段落，不需要标题或分点。"
@@ -270,7 +277,8 @@ class ReportAgent:
             f"针对话题「{context['topic']}」的分析显示，共采集样本{context['total_samples']}条，"
             f"来源覆盖{context['source_distribution']}。"
             f"情感分布为{context['sentiment']}。"
-            f"风险等级评定为{context['risk_level']}，触发因素包括{context['risk_triggers']}。"
+            f"风险等级评定为{context['risk_level']}（时间敏感性：{context.get('risk_time_sensitivity', '短期')}），"
+            f"触发因素包括{context['risk_triggers']}。"
             f"趋势预测：{context['forecast']}。"
         )
 

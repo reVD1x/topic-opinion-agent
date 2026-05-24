@@ -297,7 +297,7 @@ class BilibiliClient(AbstractApiClient, ProxyRefreshMixin):
                 utils.logger.warning(f"[BilibiliClient.get_video_all_comments] Could not find 'cursor' in response for video_id: {video_id}. Skipping.")
                 break
 
-            comment_list: List[Dict] = comments_res.get("replies", [])
+            comment_list: List[Dict] = comments_res.get("replies") or []
 
             # Check if is_end and next exist
             if "is_end" not in cursor_info or "next" not in cursor_info:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import concurrent.futures
+
 import json
 import os
 import shutil
@@ -21,7 +21,7 @@ class MindSpiderAdapter:
     # Anti-crawl safety limits
     MAX_KEYWORDS = 3
     MAX_NOTES_PER_KEYWORD = 5
-    CRAWL_TIMEOUT_SECONDS = 300  # 5 minutes
+    CRAWL_TIMEOUT_SECONDS = 600  # 10 minutes
 
     # Platform code → DB table name
     PLATFORM_TABLE_MAP: dict[str, str] = {
@@ -65,7 +65,7 @@ class MindSpiderAdapter:
         """
         Crawl platforms in real-time for *keywords* and return UnifiedDoc results.
 
-        Platforms are crawled in parallel via ThreadPoolExecutor.
+        Platforms are crawled sequentially to avoid Chrome process interference.
         Safety: max 3 keywords, 5 notes/keyword, comments disabled, 5-min timeout.
         Individual platform failures are logged but do not block other platforms.
         """
@@ -83,23 +83,18 @@ class MindSpiderAdapter:
         platform_counts: list[str] = []
         log_parts: list[str] = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(platforms)) as executor:
-            future_map: dict[concurrent.futures.Future, str] = {}
-            for platform in platforms:
-                future = executor.submit(self._crawl_one_platform, keywords, platform, max_notes)
-                future_map[future] = platform
-
-            for future in concurrent.futures.as_completed(future_map):
-                platform = future_map[future]
-                try:
-                    docs, plog = future.result()
-                except Exception as exc:
-                    log_parts.append(f"\n[search failed · {platform}] {exc}\n")
-                    continue
-                log_parts.extend(plog)
-                cn = self.PLATFORM_CN_MAP.get(platform, platform)
-                platform_counts.append(f"{cn}:{len(docs)}条")
-                all_docs.extend(docs)
+        # Run platforms sequentially to avoid Chrome process interference
+        # (port conflicts, Singleton locks, CDP signal handlers).
+        for platform in platforms:
+            try:
+                docs, plog = self._crawl_one_platform(keywords, platform, max_notes)
+            except Exception as exc:
+                log_parts.append(f"\n[search failed · {platform}] {exc}\n")
+                continue
+            log_parts.extend(plog)
+            cn = self.PLATFORM_CN_MAP.get(platform, platform)
+            platform_counts.append(f"{cn}:{len(docs)}条")
+            all_docs.extend(docs)
 
         if platform_counts:
             log_parts.append(f"\n爬取结果: {' | '.join(platform_counts)}\n")
@@ -131,8 +126,8 @@ class MindSpiderAdapter:
 
     @staticmethod
     def _cleanup_singleton_locks(browser_data_dir: Path) -> None:
-        """Remove stale Chrome SingletonLock files that prevent browser launch."""
-        for lock_file in browser_data_dir.rglob("SingletonLock"):
+        """Remove stale Chrome singleton files that prevent browser launch."""
+        for lock_file in browser_data_dir.rglob("Singleton*"):
             try:
                 lock_file.unlink(missing_ok=True)
             except OSError:
@@ -156,7 +151,7 @@ class MindSpiderAdapter:
         mc_path, cleanup_root = self._create_isolated_mediacrawler(platform)
         try:
             ok, err = self._run_topic_search_isolated(
-                keywords, platform, max_notes, log_parts, mc_path,
+                keywords, platform, max_notes, log_parts, mc_path, cn,
             )
             if not ok:
                 log_parts.append(f"[{cn} search failed] {err}\n")
@@ -169,7 +164,7 @@ class MindSpiderAdapter:
 
     def _run_topic_search_isolated(
         self, keywords: list[str], platform: str, max_notes: int,
-        log_parts: list[str], mediacrawler_path: Path,
+        log_parts: list[str], mediacrawler_path: Path, cn: str,
     ) -> tuple[bool, str]:
         """Run topic search against an isolated MediaCrawler copy."""
         helper = self._module_root / "mindspider_topic_search.py"
@@ -209,8 +204,8 @@ class MindSpiderAdapter:
         # Clean stale SingletonLock in case Phase 1 Chrome was killed
         self._cleanup_singleton_locks(mediacrawler_path / "browser_data")
         log_parts.append(
-            "\n[Phase 2] Cookie login failed, opening browser for QR code login.\n"
-            "请在弹出的浏览器窗口中用小红书 App 扫描二维码登录。\n"
+            f"\n[Phase 2] Cookie login failed, opening browser for {cn} QR code login.\n"
+            "请在弹出的浏览器窗口中扫描二维码登录。\n"
         )
         return self._exec_crawl_to_log(
             base_cmd + ["--login-type", "qrcode", "--headless", "false"],
@@ -232,11 +227,16 @@ class MindSpiderAdapter:
                 cwd=self._module_root,
                 env=env,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             log_parts.append("\n[timeout] Crawl exceeded time limit\n")
+            if exc.stdout:
+                log_parts.append(f"--- partial stdout ---\n{exc.stdout}\n")
+            if exc.stderr:
+                log_parts.append(f"--- partial stderr ---\n{exc.stderr}\n")
             return False, "爬取超时"
 
         log_parts.append(f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}\n")
@@ -309,7 +309,8 @@ class MindSpiderAdapter:
             cwd=self._module_root,
             env=env,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode == 0:
             return True, (result.stdout or "mindspider_completed").strip()

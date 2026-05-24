@@ -100,42 +100,51 @@ class DeepSentimentCrawling:
     def run_platform_crawling(self, platform: str, target_date: date = None,
                              max_keywords: int = 50, max_notes: int = 50,
                              login_type: str = "qrcode",
-                             headless: bool = True) -> Dict:
+                             headless: bool = True,
+                             max_comments: int = 20,
+                             keywords: List[str] = None) -> Dict:
         """
         执行单个平台的爬取任务
-        
+
         Args:
             platform: 平台名称
             target_date: 目标日期
             max_keywords: 最大关键词数量
             max_notes: 最大爬取内容数量
+            max_comments: 每篇笔记最大评论抓取数
             login_type: 登录方式
-        
+            keywords: 自定义关键词列表，为None时从数据库获取
+
         Returns:
             爬取结果
         """
         if platform not in self.supported_platforms:
             raise ValueError(f"不支持的平台: {platform}")
-        
+
         if not target_date:
             target_date = date.today()
-        
+
         print(f"🎯 开始执行 {platform} 平台的爬取任务 ({target_date})")
-        
-        # 获取关键词
-        keywords = self.keyword_manager.get_keywords_for_platform(
-            platform, target_date, max_keywords
-        )
-        
+
+        # 获取关键词：优先使用传入的自定义关键词
+        if keywords:
+            if len(keywords) > max_keywords:
+                keywords = keywords[:max_keywords]
+            print(f"📝 使用自定义关键词 ({len(keywords)} 个)")
+        else:
+            keywords = self.keyword_manager.get_keywords_for_platform(
+                platform, target_date, max_keywords
+            )
+
         if not keywords:
             print(f"⚠️ 没有找到 {platform} 平台的关键词")
             return {"success": False, "error": "没有关键词"}
-        
-        print(f"📝 准备爬取 {len(keywords)} 个关键词")
+
+        print(f"📝 准备爬取 {len(keywords)} 个关键词: {', '.join(keywords)}")
         
         # 执行爬取
         result = self.platform_crawler.run_crawler(
-            platform, keywords, login_type, max_notes, headless=headless
+            platform, keywords, login_type, max_notes, headless=headless, max_comments=max_comments
         )
         
         return result
@@ -206,10 +215,14 @@ def main():
                        help="每个平台最大关键词数量 (默认: 50)")
     parser.add_argument("--max-notes", type=int, default=50,
                        help="每个平台最大爬取内容数量 (默认: 50)")
-    parser.add_argument("--login-type", type=str, choices=['qrcode', 'phone', 'cookie'], 
+    parser.add_argument("--max-comments", type=int, default=20,
+                       help="每篇笔记最大评论抓取数量 (默认: 20)")
+    parser.add_argument("--login-type", type=str, choices=['qrcode', 'phone', 'cookie'],
                        default='qrcode', help="登录方式 (默认: qrcode)")
     
     # 功能参数
+    parser.add_argument("--keywords", type=str,
+                       help="自定义关键词，逗号分隔（如：核电,腾讯,AI），覆盖数据库关键词")
     parser.add_argument("--list-topics", action="store_true", help="列出最近的话题数据")
     parser.add_argument("--days", type=int, default=7, help="查看最近几天的话题 (默认: 7)")
     parser.add_argument("--guide", action="store_true", help="显示平台使用指南")
@@ -229,7 +242,13 @@ def main():
             return
 
     headless = args.headless.lower() == "true"
-    
+
+    # 解析自定义关键词
+    custom_keywords = None
+    if args.keywords:
+        custom_keywords = [kw.strip() for kw in args.keywords.split(",") if kw.strip()]
+        print(f"使用自定义关键词: {custom_keywords}")
+
     # 创建爬取实例
     crawler = DeepSentimentCrawling()
     
@@ -254,7 +273,8 @@ def main():
         if args.platform:
             result = crawler.run_platform_crawling(
                 args.platform, target_date, args.max_keywords,
-                args.max_notes, args.login_type, headless=headless
+                args.max_notes, args.login_type, headless=headless, max_comments=args.max_comments,
+                keywords=custom_keywords
             )
             
             if result['success']:

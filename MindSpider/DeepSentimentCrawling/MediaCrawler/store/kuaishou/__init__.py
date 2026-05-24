@@ -92,7 +92,7 @@ async def update_ks_video_comment(video_id: str, comment_item: Dict):
     # Support both formats for backward compatibility
     comment_id = comment_item.get("comment_id") or comment_item.get("commentId")
     save_comment_item = {
-        "comment_id": str(comment_id) if comment_id else None,  # Convert to string for storage
+        "comment_id": int(comment_id) if comment_id else None,
         "create_time": comment_item.get("timestamp"),
         "video_id": video_id,
         "content": comment_item.get("content"),
