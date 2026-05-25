@@ -169,6 +169,14 @@ uv run python MindSpider/DeepSentimentCrawling/main.py --deep-sentiment --test
 uv run python MindSpider/DeepSentimentCrawling/main.py --loop
 ```
 
+**轮换式爬虫（低风控、持续积累）：**
+
+每轮每个平台只抓 1 篇笔记，平台间冷却间隔，循环切换以分散风控压力，覆盖全部 7 个平台，适合长期后台运行积累语料。
+
+```bash
+bash scripts/rotating_crawler.sh
+```
+
 **登录问题排除：**
 
 ```bash
