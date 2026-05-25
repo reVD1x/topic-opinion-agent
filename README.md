@@ -69,7 +69,9 @@ git clone https://github.com/reVD1x/topic-opinion-agent.git
 cd topic-opinion-agent
 
 # 2. 安装依赖（uv 自动创建 venv）
-uv sync
+uv sync                                          # 核心依赖
+uv sync --all-extras                             # 含 API / 爬虫 / Streamlit 全部依赖
+uv sync --extra api --extra crawler --extra ui   # 等价于 --all-extras
 
 # 3. 配置环境变量
 cp .env.example .env
@@ -282,6 +284,7 @@ POST /analysis/topic
 ├── diagrams/            # 系统架构图（PlantUML 源文件）
 ├── scripts/             # 辅助脚本（rotating_crawler 等）
 ├── tests/               # 单元测试
+├── pyproject.toml
 ├── requirements.txt
 ├── pytest.ini
 └── .env.example
