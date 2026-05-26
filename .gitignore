@@ -26,5 +26,10 @@ data/
 MindSpider/DeepSentimentCrawling/MediaCrawler/.deps_installed
 MindSpider/DeepSentimentCrawling/MediaCrawler/data/
 
+# JS artifacts (docx manipulation, not part of Python project)
+node_modules/
+package.json
+package-lock.json
+
 # Streamlit
 .streamlit/secrets.toml
