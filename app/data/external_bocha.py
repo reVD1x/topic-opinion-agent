@@ -31,7 +31,11 @@ class ExternalBocha:
                     raw_content = json.loads(raw_content)
                 except (json.JSONDecodeError, TypeError):
                     continue
-            for item in raw_content.get("value", []) or []:
+            if isinstance(raw_content, list):
+                items = raw_content
+            else:
+                items = raw_content.get("value", []) or [] if isinstance(raw_content, dict) else []
+            for item in items:
                 if item.get("name") or item.get("snippet"):
                     results.append(item)
                 if len(results) >= limit:
@@ -49,7 +53,7 @@ class ExternalBocha:
             source_type="bocha",
             source_name="bocha",
             title=item.get("name"),
-            content=item.get("snippet") or item.get("summary", ""),
+            content=item.get("snippet") or item.get("summary") or "",
             url=item.get("url"),
             author=item.get("author"),
             credibility_hint="external",

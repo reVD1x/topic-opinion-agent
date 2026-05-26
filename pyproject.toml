@@ -59,6 +59,4 @@ ui = [
     "streamlit==1.48.1",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.uv]
