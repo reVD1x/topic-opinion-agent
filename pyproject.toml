@@ -60,3 +60,6 @@ ui = [
 ]
 
 [tool.uv]
+
+[dependency-groups]
+dev = []

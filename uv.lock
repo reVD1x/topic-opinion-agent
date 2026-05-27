@@ -2,8 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
-    "python_full_version >= '3.12'",
-    "python_full_version < '3.12'",
+    "python_full_version >= '3.13' and sys_platform == 'win32'",
+    "python_full_version >= '3.13' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'win32'",
 ]
 
 [[package]]
@@ -2437,6 +2441,9 @@ requires-dist = [
     { name = "xhshow", marker = "extra == 'crawler'", specifier = ">=0.1.3" },
 ]
 provides-extras = ["api", "crawler", "ui"]
+
+[package.metadata.requires-dev]
+dev = []
 
 [[package]]
 name = "tornado"
