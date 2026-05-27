@@ -11,7 +11,7 @@ TIMEOUT_SEC=120
 COOLDOWN=5
 
 MINDSPIDER_DIR="$(cd "$(dirname "$0")/../MindSpider" && pwd)"
-VENV_PYTHON="$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python3"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "========================================="
 echo "轮换式多平台爬虫启动"
@@ -39,7 +39,7 @@ while true; do
         # perl 实现超时 + 进程组清理
         # - fork 子进程，子进程 setpgrp(0,0) 创建新进程组后 exec python
         # - 父进程 alarm 定时，超时后 kill 进程组 (先 TERM 再 KILL)
-        perl -e '
+        (cd "${PROJECT_DIR}" && perl -e '
             $timeout = shift;
             $pid = fork();
             if (!defined $pid) { exit 1; }
@@ -62,13 +62,13 @@ while true; do
             if ($@ eq "TIMEOUT\n") { exit 142; }
             exit $? >> 8;
         ' "${TIMEOUT_SEC}" \
-            "${VENV_PYTHON}" -u \
+            uv run --extra crawler python -u \
             "${MINDSPIDER_DIR}/DeepSentimentCrawling/main.py" \
             --platform "${platform}" \
             --keywords "${KEYWORDS}" \
             --max-notes "${MAX_NOTES}" \
             --max-comments "${MAX_COMMENTS}" \
-            --headless false 2>&1
+            --headless false 2>&1)
 
         exit_code=$?
         if [ $exit_code -eq 0 ]; then

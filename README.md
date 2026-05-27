@@ -78,10 +78,10 @@ cp .env.example .env
 # 编辑 .env，至少填入 PG_* 和 LLM_* 相关变量
 
 # 4. 启动 Streamlit WebUI（最常用）
-uv run streamlit run app/ui/streamlit_app.py --server.port 8501
+uv run --extra ui streamlit run app/ui/streamlit_app.py --server.port 8501
 
 # 4. 或者启动 FastAPI 后端
-uv run uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
+uv run --extra api uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### 日常启动
@@ -89,11 +89,11 @@ uv run uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```bash
 # Streamlit（分析入口，日常最常用）
 lsof -ti :8501 | xargs kill -9 2>/dev/null   # 先杀掉旧进程
-uv run streamlit run app/ui/streamlit_app.py --server.port 8501
+uv run --extra ui streamlit run app/ui/streamlit_app.py --server.port 8501
 
 # FastAPI（API 入口）
 lsof -ti :8000 | xargs kill -9 2>/dev/null
-uv run uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
+uv run --extra api uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
 
 # 打开浏览器
 open http://localhost:8501    # Streamlit
@@ -115,22 +115,22 @@ open http://localhost:8000/docs  # FastAPI Swagger 文档
 
 ```bash
 # 测试知乎爬取
-uv run python MindSpider/mindspider_topic_search.py \
+uv run --extra crawler python MindSpider/mindspider_topic_search.py \
   --keywords "核电站" --platform zhihu --max-notes 5 \
   --login-type cookie --headless false
 
 # 测试 B 站爬取
-uv run python MindSpider/mindspider_topic_search.py \
+uv run --extra crawler python MindSpider/mindspider_topic_search.py \
   --keywords "核电站" --platform bili --max-notes 5 \
   --login-type cookie --headless false
 
 # 测试小红书（需扫码，如果 cookie 失效会自动弹出浏览器窗口）
-uv run python MindSpider/mindspider_topic_search.py \
+uv run --extra crawler python MindSpider/mindspider_topic_search.py \
   --keywords "核电站" --platform xhs --max-notes 5 \
   --login-type cookie --headless false
 
 # 使用 QR 码登录模式（强制弹出扫码窗口）
-uv run python MindSpider/mindspider_topic_search.py \
+uv run --extra crawler python MindSpider/mindspider_topic_search.py \
   --keywords "核电站" --platform zhihu --max-notes 5 \
   --login-type qrcode --headless false
 ```
@@ -138,7 +138,7 @@ uv run python MindSpider/mindspider_topic_search.py \
 **测试适配器调用：**
 
 ```bash
-uv run python -c "
+uv run --extra crawler python -c "
 from app.data.mindspider_adapter import MindSpiderAdapter
 adapter = MindSpiderAdapter()
 docs = adapter.search(keywords=['核电站'], platforms=['zhihu'], max_notes=3)
@@ -151,24 +151,24 @@ print(adapter.last_log)
 
 ```bash
 # 测试模式（小数据量验证流程）
-uv run python MindSpider/DeepSentimentCrawling/main.py --complete --test
+uv run --extra crawler python MindSpider/DeepSentimentCrawling/main.py --complete --test
 
 # 正式积累：话题提取 + 深度爬取
-uv run python MindSpider/DeepSentimentCrawling/main.py --complete
+uv run --extra crawler python MindSpider/DeepSentimentCrawling/main.py --complete
 
 # 指定平台和数量
-uv run python MindSpider/DeepSentimentCrawling/main.py --complete \
+uv run --extra crawler python MindSpider/DeepSentimentCrawling/main.py --complete \
   --platforms xhs,dy,ks,bili,wb,tieba,zhihu \
   --max-keywords 50 --max-notes 30
 
 # 只提取话题（不爬取）
-uv run python MindSpider/DeepSentimentCrawling/main.py --broad-topic
+uv run --extra crawler python MindSpider/DeepSentimentCrawling/main.py --broad-topic
 
 # 只爬取（基于已有话题）
-uv run python MindSpider/DeepSentimentCrawling/main.py --deep-sentiment --test
+uv run --extra crawler python MindSpider/DeepSentimentCrawling/main.py --deep-sentiment --test
 
 # 运行定时循环爬虫
-uv run python MindSpider/DeepSentimentCrawling/main.py --loop
+uv run --extra crawler python MindSpider/DeepSentimentCrawling/main.py --loop
 ```
 
 **轮换式爬虫（低风控、持续积累）：**
@@ -208,10 +208,10 @@ with session_scope() as s:
 
 ```bash
 # 运行测试
-uv run pytest tests/ -v
+uv run --all-extras pytest tests/ -v
 
 # 单文件测试
-uv run pytest tests/test_evidence_chain.py -v
+uv run --all-extras pytest tests/test_evidence_chain.py -v
 
 # 检查导入是否正常
 uv run python -c "from app.workflow.pipeline import TopicAnalysisPipeline; print('OK')"
@@ -284,8 +284,9 @@ POST /analysis/topic
 ├── diagrams/            # 系统架构图（PlantUML 源文件）
 ├── scripts/             # 辅助脚本（rotating_crawler 等）
 ├── tests/               # 单元测试
-├── pyproject.toml
-├── requirements.txt
+├── pyproject.toml          # 依赖声明（uv 管理）
+├── uv.lock                 # 依赖锁定文件
+├── requirements/           # pip 兼容格式（由 pyproject.toml 同步生成，非手动维护）
 ├── pytest.ini
 └── .env.example
 ```
